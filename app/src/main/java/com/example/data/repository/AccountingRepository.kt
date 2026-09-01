@@ -29,91 +29,101 @@ class AccountingRepository(
     // -------------------------------------------------------------
     // Initial Seed Data (Standard Arab Accounting Chart of Accounts)
     // -------------------------------------------------------------
+    fun getDefaultCleanAccounts(): List<Account> {
+        return listOf(
+            // 1. الأصول (Assets)
+            Account(code = "1", nameAr = "الأصول", type = AccountType.ASSET, isGroup = true),
+            Account(code = "11", nameAr = "الأصول المتداولة", type = AccountType.ASSET, isGroup = true),
+            Account(code = "111", nameAr = "الصندوق / الخزينة الرئيسية", type = AccountType.ASSET, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+            Account(code = "112", nameAr = "البنك / الحساب الجاري", type = AccountType.ASSET, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+            Account(code = "113", nameAr = "العملاء والمدينون", type = AccountType.ASSET, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+            Account(code = "114", nameAr = "مخزون البضائع", type = AccountType.ASSET, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+            Account(code = "12", nameAr = "الأصول الثابتة", type = AccountType.ASSET, isGroup = true),
+            Account(code = "121", nameAr = "الأجهزة والمعدات والأثاث", type = AccountType.ASSET, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+
+            // 2. الالتزامات (Liabilities)
+            Account(code = "2", nameAr = "الالتزامات", type = AccountType.LIABILITY, isGroup = true),
+            Account(code = "21", nameAr = "الالتزامات المتداولة", type = AccountType.LIABILITY, isGroup = true),
+            Account(code = "211", nameAr = "الموردون والدائنون", type = AccountType.LIABILITY, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+            Account(code = "212", nameAr = "أمانات ضريبة القيمة المضافة", type = AccountType.LIABILITY, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+
+            // 3. حقوق الملكية (Equity)
+            Account(code = "3", nameAr = "حقوق الملكية", type = AccountType.EQUITY, isGroup = true),
+            Account(code = "31", nameAr = "رأس المال", type = AccountType.EQUITY, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+            Account(code = "32", nameAr = "الأرباح المبقاة / المحتجزة", type = AccountType.EQUITY, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+
+            // 4. الإيرادات (Revenues)
+            Account(code = "4", nameAr = "الإيرادات", type = AccountType.REVENUE, isGroup = true),
+            Account(code = "41", nameAr = "إيرادات المبيعات", type = AccountType.REVENUE, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+            Account(code = "42", nameAr = "إيرادات خدمات وأخرى", type = AccountType.REVENUE, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+
+            // 5. المصروفات (Expenses)
+            Account(code = "5", nameAr = "المصروفات", type = AccountType.EXPENSE, isGroup = true),
+            Account(code = "51", nameAr = "تكلفة البضاعة المباعة", type = AccountType.EXPENSE, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+            Account(code = "52", nameAr = "مصروفات إدارية وعمومية", type = AccountType.EXPENSE, isGroup = true),
+            Account(code = "521", nameAr = "مصروف الإيجار", type = AccountType.EXPENSE, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+            Account(code = "522", nameAr = "الرواتب والأجور", type = AccountType.EXPENSE, isGroup = false, currentBalance = 0.0, initialBalance = 0.0),
+            Account(code = "523", nameAr = "مصاريف الكهرباء والمياه والاتصالات", type = AccountType.EXPENSE, isGroup = false, currentBalance = 0.0, initialBalance = 0.0)
+        )
+    }
+
     suspend fun checkAndSeedInitialData() = withContext(Dispatchers.IO) {
         val count = accountDao.getCount()
         if (count == 0) {
-            val defaultAccounts = listOf(
-                // 1. الأصول (Assets)
-                Account(code = "1", nameAr = "الأصول", type = AccountType.ASSET, isGroup = true),
-                Account(code = "11", nameAr = "الأصول المتداولة", type = AccountType.ASSET, isGroup = true),
-                Account(code = "111", nameAr = "الصندوق / الخزينة الرئيسية", type = AccountType.ASSET, isGroup = false, currentBalance = 50000.0),
-                Account(code = "112", nameAr = "البنك / الحساب الجاري", type = AccountType.ASSET, isGroup = false, currentBalance = 120000.0),
-                Account(code = "113", nameAr = "العملاء والمدينون", type = AccountType.ASSET, isGroup = false, currentBalance = 15000.0),
-                Account(code = "114", nameAr = "مخزون البضائع", type = AccountType.ASSET, isGroup = false, currentBalance = 35000.0),
-                Account(code = "12", nameAr = "الأصول الثابتة", type = AccountType.ASSET, isGroup = true),
-                Account(code = "121", nameAr = "الأجهزة والمعدات", type = AccountType.ASSET, isGroup = false, currentBalance = 25000.0),
-
-                // 2. الالتزامات (Liabilities)
-                Account(code = "2", nameAr = "الالتزامات", type = AccountType.LIABILITY, isGroup = true),
-                Account(code = "21", nameAr = "الالتزامات المتداولة", type = AccountType.LIABILITY, isGroup = true),
-                Account(code = "211", nameAr = "الموردون والدائنون", type = AccountType.LIABILITY, isGroup = false, currentBalance = 18000.0),
-                Account(code = "212", nameAr = "أمانات ضريبة القيمة المضافة", type = AccountType.LIABILITY, isGroup = false, currentBalance = 2000.0),
-
-                // 3. حقوق الملكية (Equity)
-                Account(code = "3", nameAr = "حقوق الملكية", type = AccountType.EQUITY, isGroup = true),
-                Account(code = "31", nameAr = "رأس المال", type = AccountType.EQUITY, isGroup = false, currentBalance = 225000.0),
-                Account(code = "32", nameAr = "الأرباح المبقاة / المحتجزة", type = AccountType.EQUITY, isGroup = false, currentBalance = 0.0),
-
-                // 4. الإيرادات (Revenues)
-                Account(code = "4", nameAr = "الإيرادات", type = AccountType.REVENUE, isGroup = true),
-                Account(code = "41", nameAr = "إيرادات المبيعات", type = AccountType.REVENUE, isGroup = false, currentBalance = 45000.0),
-                Account(code = "42", nameAr = "إيرادات خدمات وأخرى", type = AccountType.REVENUE, isGroup = false, currentBalance = 5000.0),
-
-                // 5. المصروفات (Expenses)
-                Account(code = "5", nameAr = "المصروفات", type = AccountType.EXPENSE, isGroup = true),
-                Account(code = "51", nameAr = "تكلفة البضاعة المباعة", type = AccountType.EXPENSE, isGroup = false, currentBalance = 22000.0),
-                Account(code = "52", nameAr = "مصروفات إدارية وعمومية", type = AccountType.EXPENSE, isGroup = true),
-                Account(code = "521", nameAr = "مصروف الإيجار", type = AccountType.EXPENSE, isGroup = false, currentBalance = 6000.0),
-                Account(code = "522", nameAr = "الرواتب والأجور", type = AccountType.EXPENSE, isGroup = false, currentBalance = 12000.0),
-                Account(code = "523", nameAr = "مصاريف الكهرباء والمياه والاتصالات", type = AccountType.EXPENSE, isGroup = false, currentBalance = 1500.0)
-            )
-            accountDao.insertAccounts(defaultAccounts)
-
-            // Initial Products
-            val defaultProducts = listOf(
-                Product(code = "PRD-001", barcode = "6281001", nameAr = "كمبيوتر محمول Core i7", category = "إلكترونيات", unit = "جهاز", purchasePrice = 3200.0, sellingPrice = 3800.0, currentStock = 12.0, minStockLevel = 3.0),
-                Product(code = "PRD-002", barcode = "6281002", nameAr = "شاشة عرض 27 بوصة 4K", category = "إلكترونيات", unit = "شاشة", purchasePrice = 950.0, sellingPrice = 1250.0, currentStock = 15.0, minStockLevel = 4.0),
-                Product(code = "PRD-003", barcode = "6281003", nameAr = "طابعة ليزر متعددة المهام", category = "أجهزة مكتبية", unit = "طابعة", purchasePrice = 1100.0, sellingPrice = 1450.0, currentStock = 6.0, minStockLevel = 2.0),
-                Product(code = "PRD-004", barcode = "6281004", nameAr = "لوحة مفاتيح وماوس لاسلكي", category = "إكسسوارات", unit = "طقم", purchasePrice = 120.0, sellingPrice = 180.0, currentStock = 30.0, minStockLevel = 8.0),
-                Product(code = "PRD-005", barcode = "6281005", nameAr = "ورق طباعة A4 80g (كرتون)", category = "قرطاسية", unit = "كرتون", purchasePrice = 90.0, sellingPrice = 115.0, currentStock = 2.0, minStockLevel = 5.0) // Low stock
-            )
-            productDao.insertProducts(defaultProducts)
-
-            // Initial Customers
-            val defaultCustomers = listOf(
-                Customer(name = "مؤسسة الأفق للتجارة", phone = "0501234567", email = "info@alofooq.sa", taxNumber = "300123456700003", address = "الرياض - الملز", currentBalance = 8500.0),
-                Customer(name = "شركة النور للحلول التقنية", phone = "0559876543", email = "sales@alnoor.com", taxNumber = "310987654300003", address = "جدة - الروضة", currentBalance = 6500.0),
+            accountDao.insertAccounts(getDefaultCleanAccounts())
+            // General default cash customer
+            partnerDao.insertCustomer(
                 Customer(name = "عميل نقدي عام", phone = "-", email = "", address = "الفرع الرئيسي", currentBalance = 0.0)
             )
-            partnerDao.insertCustomers(defaultCustomers)
+        }
+    }
 
-            // Initial Suppliers
-            val defaultSuppliers = listOf(
-                Supplier(name = "شركة التقنية العالمية للتوزيع", phone = "0112345678", email = "orders@globaltech.sa", taxNumber = "300999888100003", address = "الرياض - السلي", currentBalance = 12000.0),
-                Supplier(name = "مؤسسة التوريدات المكتبية الحديثة", phone = "0123456789", email = "supply@modernoffice.sa", taxNumber = "300777666200003", address = "الدمام - الميناء", currentBalance = 6000.0)
-            )
-            partnerDao.insertSuppliers(defaultSuppliers)
+    // -------------------------------------------------------------
+    // System Reset & Data Clearing (تهيئة وتصفير النظام)
+    // -------------------------------------------------------------
+    suspend fun clearInvoicesAndTransactionsOnly(): Unit = withContext(Dispatchers.IO) {
+        // 1. Delete all invoices and items
+        invoiceDao.deleteAllSalesInvoiceItems()
+        invoiceDao.deleteAllSalesInvoices()
+        invoiceDao.deleteAllPurchaseInvoiceItems()
+        invoiceDao.deleteAllPurchaseInvoices()
 
-            // Seed an opening journal entry
-            val openingLines = listOf(
-                JournalEntryLine(accountId = 3, accountCode = "111", accountName = "الصندوق / الخزينة الرئيسية", debit = 50000.0, credit = 0.0, description = "رصيد افتتاحي الصندوق"),
-                JournalEntryLine(accountId = 4, accountCode = "112", accountName = "البنك / الحساب الجاري", debit = 120000.0, credit = 0.0, description = "رصيد افتتاحي البنك"),
-                JournalEntryLine(accountId = 6, accountCode = "114", accountName = "مخزون البضائع", debit = 35000.0, credit = 0.0, description = "رصيد افتتاحي المخزون"),
-                JournalEntryLine(accountId = 8, accountCode = "121", accountName = "الأجهزة والمعدات", debit = 25000.0, credit = 0.0, description = "أصول ثابتة افتتاحية"),
-                JournalEntryLine(accountId = 12, accountCode = "31", accountName = "رأس المال", debit = 0.0, credit = 230000.0, description = "إثبات رأس المال الافتتاحي")
-            )
-            val jEntry = JournalEntry(
-                entryNumber = "JV-OPENING-01",
-                date = System.currentTimeMillis() - (86400000L * 30),
-                description = "القيد الافتتاحي وبدء الدورة المحاسبية",
-                referenceNumber = "REF-2025-001",
-                source = "MANUAL",
-                totalDebit = 230000.0,
-                totalCredit = 230000.0
-            )
-            val entryId = journalDao.insertEntry(jEntry)
-            val linkedLines = openingLines.map { it.copy(entryId = entryId) }
-            journalDao.insertLines(linkedLines)
+        // 2. Delete all journal entries and lines
+        journalDao.deleteAllLines()
+        journalDao.deleteAllEntries()
+
+        // 3. Delete all stock movements and reset product stock quantities to 0
+        productDao.deleteAllStockMovements()
+        productDao.resetAllStockQuantities()
+
+        // 4. Reset balances of customers and suppliers to 0
+        partnerDao.resetAllCustomerBalances()
+        partnerDao.resetAllSupplierBalances()
+
+        // 5. Reset all account balances to 0.0
+        accountDao.resetAllAccountBalances()
+    }
+
+    suspend fun resetSystemCompletely(keepChartOfAccounts: Boolean = true): Unit = withContext(Dispatchers.IO) {
+        // 1. Clear all transactions first
+        clearInvoicesAndTransactionsOnly()
+
+        // 2. Clear products
+        productDao.deleteAllProducts()
+
+        // 3. Clear suppliers and customers (keep only default cash customer)
+        partnerDao.deleteAllSuppliers()
+        partnerDao.deleteAllCustomers()
+        partnerDao.insertCustomer(
+            Customer(name = "عميل نقدي عام", phone = "-", email = "", address = "الفرع الرئيسي", currentBalance = 0.0)
+        )
+
+        // 4. Reset or reseed accounts
+        if (!keepChartOfAccounts) {
+            accountDao.deleteAllAccounts()
+            accountDao.insertAccounts(getDefaultCleanAccounts())
+        } else {
+            accountDao.resetAllAccountBalances()
         }
     }
 

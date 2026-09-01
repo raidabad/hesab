@@ -106,73 +106,105 @@ fun SalesScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         if (selectedTab == 0) {
-            // Sales Invoices List
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(filteredInvoices, key = { it.id }) { inv ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onViewInvoiceDetail(inv) },
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        shape = RoundedCornerShape(12.dp)
+            if (filteredInvoices.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(
+                        Icon(
+                            imageVector = Icons.Default.ReceiptLong,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Text(
+                            text = if (searchQuery.isBlank()) "لا توجد فواتير مبيعات سابقة" else "لم يتم العثور على نتائج للبحث",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = if (searchQuery.isBlank()) "النظام جاهز ونظيف. انقر على \"فاتورة جديدة\" للبدء." else "تأكد من كتابة رقم الفاتورة أو اسم العميل بشكل صحيح",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+            } else {
+                // Sales Invoices List
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredInvoices, key = { it.id }) { inv ->
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .clickable { onViewInvoiceDetail(inv) },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Surface(
-                                        color = EmeraldPrimary.copy(alpha = 0.15f),
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(
+                                            color = EmeraldPrimary.copy(alpha = 0.15f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = inv.invoiceNumber,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                color = EmeraldPrimary,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = inv.invoiceNumber,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            color = EmeraldPrimary,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold
+                                            text = Formatters.date(inv.date),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = GrayMedium
                                         )
                                     }
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = Formatters.date(inv.date),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = GrayMedium
+                                        text = inv.customerName,
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodyLarge
                                     )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = inv.customerName,
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                Text(
-                                    text = "طريقة السداد: ${inv.paymentType.arabicName}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = GrayMedium
-                                )
-                            }
-
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = Formatters.currency(inv.totalAmount),
-                                    fontWeight = FontWeight.Bold,
-                                    color = EmeraldPrimary,
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                if (inv.taxAmount > 0) {
                                     Text(
-                                        text = "الضريبة: ${Formatters.currency(inv.taxAmount)}",
+                                        text = "طريقة السداد: ${inv.paymentType.arabicName}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = GrayMedium
                                     )
+                                }
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = Formatters.currency(inv.totalAmount),
+                                        fontWeight = FontWeight.Bold,
+                                        color = EmeraldPrimary,
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    if (inv.taxAmount > 0) {
+                                        Text(
+                                            text = "الضريبة: ${Formatters.currency(inv.taxAmount)}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = GrayMedium
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -70,7 +70,9 @@ fun SettingsDialog(
     currentStorePhone: String,
     currentCurrencySymbol: String,
     onDismiss: () -> Unit,
-    onSave: (storeName: String, storePhone: String, currencySymbol: String) -> Unit
+    onSave: (storeName: String, storePhone: String, currencySymbol: String) -> Unit,
+    onClearTransactions: () -> Unit = {},
+    onResetAllData: () -> Unit = {}
 ) {
     var storeName by remember { mutableStateOf(currentStoreName) }
     var storePhone by remember { mutableStateOf(currentStorePhone) }
@@ -79,6 +81,9 @@ fun SettingsDialog(
     var isCustomCurrencySelected by remember {
         mutableStateOf(PRESET_CURRENCIES.none { it.symbol == currentCurrencySymbol })
     }
+
+    var showClearConfirmDialog by remember { mutableStateOf(false) }
+    var showResetAllConfirmDialog by remember { mutableStateOf(false) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -378,7 +383,88 @@ fun SettingsDialog(
                         }
                     }
 
-                    // Section 3: System Status & Database info
+                    // Section 3: System Initialization & Data Clearing (تهيئة وتصفير النظام)
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFFFEF2F2)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFECACA))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteSweep,
+                                    contentDescription = null,
+                                    tint = ErrorRed,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "تهيئة وتصفير النظام",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ErrorRed
+                                )
+                            }
+
+                            Text(
+                                text = "حذف المعلومات والعمليات السابقة (فواتير المبيعات، فواتير المشتريات، والقيود اليومية) لبدء العمل على نظام نظيف وجاهز:",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = { showClearConfirmDialog = true },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("clear_transactions_btn"),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = ErrorRed
+                                    ),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "حذف الفواتير وتصفير الأرصدة",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                OutlinedButton(
+                                    onClick = { showResetAllConfirmDialog = true },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("reset_all_btn"),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = ErrorRed
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, ErrorRed),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "تصفير شامل للمصنع",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 4: System Status & Database info
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = Color(0xFFF0FDF4),
@@ -457,5 +543,95 @@ fun SettingsDialog(
                 }
             }
         }
+    }
+
+    // Confirmation Dialog for Clearing Invoices & Transactions
+    if (showClearConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmDialog = false },
+            icon = {
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = ErrorRed,
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "تأكيد حذف الفواتير وتصفير الأرصدة",
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Text(
+                    text = "هل أنت متأكد من رغبتك في حذف كافة فواتير المبيعات والمشتريات والقيود اليومية وتصفير أرصدة الحسابات؟\n\nسيتم الاحتفاظ بشجرة الحسابات وقائمة المنتجات مع تصفير كمياتها.",
+                    textAlign = TextAlign.Center
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearConfirmDialog = false
+                        onClearTransactions()
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
+                ) {
+                    Text("نعم، احذف الفواتير والعمليات")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showClearConfirmDialog = false }) {
+                    Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    // Confirmation Dialog for Complete Factory Reset
+    if (showResetAllConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetAllConfirmDialog = false },
+            icon = {
+                Icon(
+                    Icons.Default.DeleteForever,
+                    contentDescription = null,
+                    tint = ErrorRed,
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "تأكيد التهيئة الشاملة للنظام",
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Text(
+                    text = "تحذير: سيتم مسح كافة البيانات المسجلة (الفواتير، المنتجات، العملاء، الموردين) وإعادة بناء دليل الحسابات برصيد صفر لبدء النظام كنسخة جديدة تماماً.\n\nهل ترغب بالمتابعة؟",
+                    textAlign = TextAlign.Center
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showResetAllConfirmDialog = false
+                        onResetAllData()
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
+                ) {
+                    Text("نعم، تهيئة شاملة")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showResetAllConfirmDialog = false }) {
+                    Text("إلغاء")
+                }
+            }
+        )
     }
 }

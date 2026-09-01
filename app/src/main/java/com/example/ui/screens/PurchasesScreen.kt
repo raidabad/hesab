@@ -106,74 +106,106 @@ fun PurchasesScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         if (selectedTab == 0) {
-            // Purchase Invoices List
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(filteredInvoices, key = { it.id }) { bill ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onViewPurchaseDetail(bill) },
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        shape = RoundedCornerShape(12.dp)
+            if (filteredInvoices.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(
+                        Icon(
+                            imageVector = Icons.Default.ShoppingBag,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Text(
+                            text = if (searchQuery.isBlank()) "لا توجد فواتير مشتريات سابقة" else "لم يتم العثور على نتائج للبحث",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = if (searchQuery.isBlank()) "النظام جاهز ونظيف. انقر على \"فاتورة جديدة\" لتسجيل مشترياتك." else "تأكد من كتابة رقم الفاتورة أو اسم المورد بشكل صحيح",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+            } else {
+                // Purchase Invoices List
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredInvoices, key = { it.id }) { bill ->
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .clickable { onViewPurchaseDetail(bill) },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Surface(
-                                        color = EmeraldPrimary.copy(alpha = 0.15f),
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(
+                                            color = EmeraldPrimary.copy(alpha = 0.15f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = bill.billNumber,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                color = EmeraldPrimary,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = bill.billNumber,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            color = EmeraldPrimary,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold
+                                            text = Formatters.date(bill.date),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = GrayMedium
                                         )
                                     }
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = Formatters.date(bill.date),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = GrayMedium
+                                        text = bill.supplierName,
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.bodyLarge
                                     )
+                                    if (bill.supplierInvoiceRef.isNotBlank()) {
+                                        Text(
+                                            text = "مرجع المورد: ${bill.supplierInvoiceRef}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = GrayMedium
+                                        )
+                                    }
                                 }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = bill.supplierName,
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                if (bill.supplierInvoiceRef.isNotBlank()) {
+
+                                Column(horizontalAlignment = Alignment.End) {
                                     Text(
-                                        text = "مرجع المورد: ${bill.supplierInvoiceRef}",
+                                        text = Formatters.currency(bill.totalAmount),
+                                        fontWeight = FontWeight.Bold,
+                                        color = EmeraldPrimary,
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Text(
+                                        text = "طريقة السداد: ${bill.paymentType.arabicName}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = GrayMedium
                                     )
                                 }
-                            }
-
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = Formatters.currency(bill.totalAmount),
-                                    fontWeight = FontWeight.Bold,
-                                    color = EmeraldPrimary,
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                Text(
-                                    text = "طريقة السداد: ${bill.paymentType.arabicName}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = GrayMedium
-                                )
                             }
                         }
                     }

@@ -46,4 +46,14 @@ interface ProductDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMovements(movements: List<StockMovement>)
+
+    // Reset & Clear methods for system initialization
+    @Query("DELETE FROM stock_movements")
+    suspend fun deleteAllStockMovements()
+
+    @Query("DELETE FROM products")
+    suspend fun deleteAllProducts()
+
+    @Query("UPDATE products SET currentStock = 0.0")
+    suspend fun resetAllStockQuantities()
 }

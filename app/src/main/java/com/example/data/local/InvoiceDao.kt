@@ -40,4 +40,30 @@ interface InvoiceDao {
 
     @Query("SELECT * FROM purchase_invoice_items WHERE billId = :billId")
     suspend fun getPurchaseInvoiceItems(billId: Long): List<PurchaseInvoiceItem>
+
+    // Single Deletions
+    @Delete
+    suspend fun deleteSalesInvoice(invoice: SalesInvoice)
+
+    @Query("DELETE FROM sales_invoice_items WHERE invoiceId = :invoiceId")
+    suspend fun deleteSalesInvoiceItems(invoiceId: Long)
+
+    @Delete
+    suspend fun deletePurchaseInvoice(invoice: PurchaseInvoice)
+
+    @Query("DELETE FROM purchase_invoice_items WHERE billId = :billId")
+    suspend fun deletePurchaseInvoiceItems(billId: Long)
+
+    // Reset & Clear methods for system initialization
+    @Query("DELETE FROM sales_invoices")
+    suspend fun deleteAllSalesInvoices()
+
+    @Query("DELETE FROM sales_invoice_items")
+    suspend fun deleteAllSalesInvoiceItems()
+
+    @Query("DELETE FROM purchase_invoices")
+    suspend fun deleteAllPurchaseInvoices()
+
+    @Query("DELETE FROM purchase_invoice_items")
+    suspend fun deleteAllPurchaseInvoiceItems()
 }

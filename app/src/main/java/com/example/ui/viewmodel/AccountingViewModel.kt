@@ -142,6 +142,28 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         Formatters.currencySymbol = _currencySymbol.value
         viewModelScope.launch {
             repository.checkAndSeedInitialData()
+            // Clean up any previous demo/sample transactions to initialize the system cleanly
+            val isCleaned = prefs.getBoolean("system_data_cleaned_v2", false)
+            if (!isCleaned) {
+                repository.clearInvoicesAndTransactionsOnly()
+                prefs.edit().putBoolean("system_data_cleaned_v2", true).apply()
+            }
+        }
+    }
+
+    fun clearInvoicesAndTransactions(onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.clearInvoicesAndTransactionsOnly()
+            showMessage("تم حذف جميع فواتير البيع والشراء والقيود وتصفير الأرصدة بنجاح")
+            onSuccess()
+        }
+    }
+
+    fun resetSystemCompletely(keepChartOfAccounts: Boolean = true, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.resetSystemCompletely(keepChartOfAccounts)
+            showMessage("تمت تهيئة وتصفير النظام بنجاح")
+            onSuccess()
         }
     }
 

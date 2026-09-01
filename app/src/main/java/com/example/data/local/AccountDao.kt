@@ -35,4 +35,11 @@ interface AccountDao {
 
     @Query("SELECT COUNT(*) FROM accounts")
     suspend fun getCount(): Int
+
+    // Reset & Clear methods for system initialization
+    @Query("UPDATE accounts SET currentBalance = 0.0, initialBalance = 0.0")
+    suspend fun resetAllAccountBalances()
+
+    @Query("DELETE FROM accounts")
+    suspend fun deleteAllAccounts()
 }

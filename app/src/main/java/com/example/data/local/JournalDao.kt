@@ -27,4 +27,11 @@ interface JournalDao {
 
     @Query("SELECT * FROM journal_entry_lines WHERE accountId = :accountId ORDER BY id ASC")
     suspend fun getLinesForAccount(accountId: Long): List<JournalEntryLine>
+
+    // Reset & Clear methods for system initialization
+    @Query("DELETE FROM journal_entries")
+    suspend fun deleteAllEntries()
+
+    @Query("DELETE FROM journal_entry_lines")
+    suspend fun deleteAllLines()
 }

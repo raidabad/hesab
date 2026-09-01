@@ -526,6 +526,12 @@ fun MainScreen(viewModel: AccountingViewModel = viewModel()) {
                 onSave = { name, phone, currency ->
                     viewModel.updateStoreSettings(name, phone, currency)
                     showSettingsDialog = false
+                },
+                onClearTransactions = {
+                    viewModel.clearInvoicesAndTransactions()
+                },
+                onResetAllData = {
+                    viewModel.resetSystemCompletely()
                 }
             )
         }

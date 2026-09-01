@@ -56,4 +56,17 @@ interface PartnerDao {
 
     @Query("SELECT COUNT(*) FROM suppliers")
     suspend fun getSupplierCount(): Int
+
+    // Reset & Clear methods for system initialization
+    @Query("DELETE FROM customers")
+    suspend fun deleteAllCustomers()
+
+    @Query("DELETE FROM suppliers")
+    suspend fun deleteAllSuppliers()
+
+    @Query("UPDATE customers SET currentBalance = 0.0")
+    suspend fun resetAllCustomerBalances()
+
+    @Query("UPDATE suppliers SET currentBalance = 0.0")
+    suspend fun resetAllSupplierBalances()
 }
