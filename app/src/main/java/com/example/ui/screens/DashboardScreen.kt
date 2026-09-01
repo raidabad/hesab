@@ -253,7 +253,7 @@ fun DashboardScreen(
                 QuickActionButton(
                     title = "فاتورة شراء",
                     icon = Icons.Default.ShoppingBag,
-                    color = WarningAmber,
+                    color = WarningOrange,
                     modifier = Modifier
                         .weight(1f)
                         .testTag("quick_purchase_btn"),
@@ -335,7 +335,7 @@ fun DashboardScreen(
                         value = Formatters.currency(stats.totalPurchases),
                         subtitle = "نظام المشتريات",
                         icon = Icons.Default.ShoppingCart,
-                        gradientColors = listOf(WarningAmber, Color(0xFFD97706)),
+                        gradientColors = listOf(WarningOrange, Color(0xFFD97706)),
                         modifier = Modifier.weight(1f),
                         onClick = { onNavigateSection(AppSection.PURCHASES) }
                     )
@@ -418,7 +418,7 @@ fun DashboardScreen(
                     Column {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("المشتريات", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                            Text(Formatters.currency(stats.totalPurchases), style = MaterialTheme.typography.labelSmall, color = WarningAmber, fontWeight = FontWeight.Bold)
+                            Text(Formatters.currency(stats.totalPurchases), style = MaterialTheme.typography.labelSmall, color = WarningOrange, fontWeight = FontWeight.Bold)
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Box(
@@ -433,7 +433,7 @@ fun DashboardScreen(
                                     .fillMaxWidth(purchaseRatio)
                                     .fillMaxHeight()
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(WarningAmber)
+                                    .background(WarningOrange)
                             )
                         }
                     }

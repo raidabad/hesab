@@ -1,0 +1,8 @@
+{
+  "name": "محاسب الأعمال الذكي",
+  "description": "تطبيق محاسبي متكامل لإدارة الحسابات، قيود اليومية، المبيعات، المشتريات، المخازن، والتقارير المالية متعدد العملات",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

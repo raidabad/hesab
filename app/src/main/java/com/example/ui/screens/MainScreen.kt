@@ -270,29 +270,29 @@ fun MainScreen(viewModel: AccountingViewModel = viewModel()) {
                         AppSection.SALES -> {
                             SalesScreen(
                                 viewModel = viewModel,
-                                onNewSalesInvoiceClick = { showNewSalesInvoiceDialog = true },
+                                onNewInvoiceClick = { showNewSalesInvoiceDialog = true },
                                 onNewCustomerClick = { showNewCustomerDialog = true },
+                                onEditCustomerClick = { editingCustomer = it },
                                 onViewInvoiceDetail = { sale ->
                                     scope.launch {
                                         salesInvoiceDetailItems = viewModel.getSalesInvoiceItems(sale.id)
                                         selectedSalesInvoiceForDetail = sale
                                     }
-                                },
-                                onEditCustomerClick = { editingCustomer = it }
+                                }
                             )
                         }
                         AppSection.PURCHASES -> {
                             PurchasesScreen(
                                 viewModel = viewModel,
-                                onNewPurchaseInvoiceClick = { showNewPurchaseInvoiceDialog = true },
+                                onNewPurchaseClick = { showNewPurchaseInvoiceDialog = true },
                                 onNewSupplierClick = { showNewSupplierDialog = true },
-                                onViewInvoiceDetail = { purchase ->
+                                onEditSupplierClick = { editingSupplier = it },
+                                onViewPurchaseDetail = { purchase ->
                                     scope.launch {
                                         purchaseInvoiceDetailItems = viewModel.getPurchaseInvoiceItems(purchase.id)
                                         selectedPurchaseInvoiceForDetail = purchase
                                     }
-                                },
-                                onEditSupplierClick = { editingSupplier = it }
+                                }
                             )
                         }
                         AppSection.INVENTORY -> {
@@ -300,7 +300,7 @@ fun MainScreen(viewModel: AccountingViewModel = viewModel()) {
                                 viewModel = viewModel,
                                 onNewProductClick = { showNewProductDialog = true },
                                 onEditProductClick = { editingProduct = it },
-                                onAdjustStockClick = { adjustingProduct = it }
+                                onStockAdjustmentClick = { adjustingProduct = it }
                             )
                         }
                         AppSection.REPORTS -> {
