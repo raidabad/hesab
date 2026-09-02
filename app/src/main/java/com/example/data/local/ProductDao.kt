@@ -47,6 +47,12 @@ interface ProductDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMovements(movements: List<StockMovement>)
 
+    @Query("SELECT COUNT(*) FROM stock_movements WHERE productId = :productId")
+    suspend fun getMovementCountForProduct(productId: Long): Int
+
+    @Query("DELETE FROM stock_movements WHERE referenceType = :refType AND referenceId = :refId")
+    suspend fun deleteMovementsForReference(refType: String, refId: Long)
+
     // Reset & Clear methods for system initialization
     @Query("DELETE FROM stock_movements")
     suspend fun deleteAllStockMovements()

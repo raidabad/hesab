@@ -15,8 +15,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.data.model.MovementType
 import com.example.data.model.Product
 import com.example.data.model.StockMovement
+import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.components.Formatters
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.AccountingViewModel
@@ -30,6 +32,7 @@ fun InventoryScreen(
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
+    var productToDelete by remember { mutableStateOf<Product?>(null) }
 
     val products by viewModel.products.collectAsState()
     val movements by viewModel.stockMovements.collectAsState()
@@ -182,6 +185,9 @@ fun InventoryScreen(
                                     IconButton(onClick = { onStockAdjustmentClick(prod) }) {
                                         Icon(Icons.Default.Tune, contentDescription = "تسوية جردية", modifier = Modifier.size(18.dp), tint = EmeraldPrimary)
                                     }
+                                    IconButton(onClick = { productToDelete = prod }) {
+                                        Icon(Icons.Default.DeleteOutline, contentDescription = "حذف الصنف", modifier = Modifier.size(18.dp), tint = ErrorRed)
+                                    }
                                 }
                             }
                         }
@@ -210,7 +216,7 @@ fun InventoryScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(mov.productName, fontWeight = FontWeight.Bold)
                                 Text(
-                                    "${mov.movementType.arabicName} • ${Formatters.dateTime(mov.date)}",
+                                    "${mov.movementType.arabicName} • ${Formatters.date(mov.date)}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = GrayMedium
                                 )
@@ -221,7 +227,7 @@ fun InventoryScreen(
                             Text(
                                 text = "${Formatters.number(mov.quantity)}",
                                 fontWeight = FontWeight.Bold,
-                                color = if (mov.movementType == com.example.data.model.MovementType.PURCHASE || mov.movementType == com.example.data.model.MovementType.ADJUSTMENT_ADD) SuccessGreen else ErrorRed,
+                                color = if (mov.movementType == MovementType.PURCHASE || mov.movementType == MovementType.ADJUSTMENT_ADD || mov.movementType == MovementType.RETURN_IN) SuccessGreen else ErrorRed,
                                 style = MaterialTheme.typography.titleMedium
                             )
                         }
@@ -229,5 +235,18 @@ fun InventoryScreen(
                 }
             }
         }
+    }
+
+    // Product Delete Confirmation
+    productToDelete?.let { prod ->
+        ConfirmDeleteDialog(
+            title = "تأكيد حذف الصنف",
+            message = "هل أنت متأكد من حذف الصنف \"${prod.nameAr}\"؟ تنبيه: لن يتم الحذف إذا كانت هناك فواتير أو حركات مرتبطة بهذا الصنف.",
+            onDismiss = { productToDelete = null },
+            onConfirm = {
+                viewModel.deleteProductSafe(prod)
+                productToDelete = null
+            }
+        )
     }
 }

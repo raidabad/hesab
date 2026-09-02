@@ -10,14 +10,17 @@ import com.example.data.repository.AccountingRepository
 import com.example.ui.components.Formatters
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.*
 
 enum class AppSection(val arabicTitle: String) {
     DASHBOARD("الرئيسية"),
-    GENERAL_LEDGER("الأستاذ العام"),
-    SALES("المبيعات"),
-    PURCHASES("المشتريات"),
-    INVENTORY("المخازن"),
-    REPORTS("التقارير المالية")
+    SALES("المبيعات والمردودات"),
+    PURCHASES("المشتريات والمردودات"),
+    VOUCHERS("سندات القبض والصرف"),
+    INVENTORY("المخازن والأصناف"),
+    GENERAL_LEDGER("الأستاذ والقيود"),
+    REPORTS("التقارير المالية والأرباح")
 }
 
 data class DashboardStats(
@@ -30,7 +33,8 @@ data class DashboardStats(
     val totalPayables: Double = 0.0,
     val lowStockCount: Int = 0,
     val totalAccountsCount: Int = 0,
-    val totalJournalEntriesCount: Int = 0
+    val totalJournalEntriesCount: Int = 0,
+    val totalVouchersCount: Int = 0
 )
 
 data class TrialBalanceRow(
@@ -50,6 +54,19 @@ data class AccountStatementRow(
     val runningBalance: Double
 )
 
+data class IncomeStatementData(
+    val grossSales: Double = 0.0,
+    val salesReturns: Double = 0.0,
+    val netSales: Double = 0.0,
+    val cogs: Double = 0.0,
+    val grossProfit: Double = 0.0,
+    val otherRevenues: Double = 0.0,
+    val totalOperatingExpenses: Double = 0.0,
+    val detailedExpenses: List<Pair<String, Double>> = emptyList(),
+    val detailedRevenues: List<Pair<String, Double>> = emptyList(),
+    val netProfit: Double = 0.0
+)
+
 class AccountingViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application)
     private val repository = AccountingRepository(
@@ -57,7 +74,9 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         database.journalDao(),
         database.productDao(),
         database.partnerDao(),
-        database.invoiceDao()
+        database.invoiceDao(),
+        database.voucherDao(),
+        database.returnDao()
     )
 
     // System Settings (SharedPreferences)
@@ -71,6 +90,13 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _storePhone = MutableStateFlow(prefs.getString("store_phone", "") ?: "")
     val storePhone: StateFlow<String> = _storePhone.asStateFlow()
+
+    // Tax Settings (Default: Tax disabled / 0%)
+    private val _isTaxEnabled = MutableStateFlow(prefs.getBoolean("is_tax_enabled", false))
+    val isTaxEnabled: StateFlow<Boolean> = _isTaxEnabled.asStateFlow()
+
+    private val _defaultTaxRate = MutableStateFlow(prefs.getFloat("default_tax_rate", 0.0f).toDouble())
+    val defaultTaxRate: StateFlow<Double> = _defaultTaxRate.asStateFlow()
 
     // Current navigation section
     private val _currentSection = MutableStateFlow(AppSection.DASHBOARD)
@@ -95,6 +121,11 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
     val salesInvoices = repository.allSalesInvoices.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     val purchaseInvoices = repository.allPurchaseInvoices.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     val journalLines = repository.allJournalLines.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    val allVouchers = repository.allVouchers.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    val receiptVouchers = repository.receiptVouchers.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    val paymentVouchers = repository.paymentVouchers.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    val salesReturns = repository.allSalesReturns.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    val purchaseReturns = repository.allPurchaseReturns.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     // Dashboard dynamic statistics
     val dashboardStats: StateFlow<DashboardStats> = combine(
@@ -104,18 +135,21 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         combine(suppliers, salesInvoices, purchaseInvoices) { supps, sales, purchases ->
             Triple(supps, sales, purchases)
         },
-        journalEntries
-    ) { (accs, prods, custs), (supps, sales, purchases), entries ->
+        combine(journalEntries, allVouchers, salesReturns) { entries, vouchers, sReturns ->
+            Triple(entries, vouchers, sReturns)
+        }
+    ) { (accs, prods, custs), (supps, sales, purchases), (entries, vouchers, sReturns) ->
         val totalSales = sales.filter { !it.isCancelled }.sumOf { it.totalAmount }
         val totalPurchases = purchases.filter { !it.isCancelled }.sumOf { it.totalAmount }
-        
+        val totalSalesReturns = sReturns.sumOf { it.totalAmount }
+
         // Revenue minus Expenses from Chart of Accounts
         val totalRevenues = accs.filter { it.type == AccountType.REVENUE && !it.isGroup }.sumOf { it.currentBalance }
         val totalExpenses = accs.filter { it.type == AccountType.EXPENSE && !it.isGroup }.sumOf { it.currentBalance }
-        val netProfit = totalRevenues - totalExpenses
+        val netProfit = (totalRevenues - totalSalesReturns) - totalExpenses
 
         val inventoryCost = prods.sumOf { it.totalCostValue }
-        
+
         // Cash & Bank accounts (codes starting with 111 or 112)
         val cashBank = accs.filter { (it.code.startsWith("111") || it.code.startsWith("112")) && !it.isGroup }
             .sumOf { it.currentBalance }
@@ -134,7 +168,8 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
             totalPayables = payables,
             lowStockCount = lowStock,
             totalAccountsCount = accs.count { !it.isGroup },
-            totalJournalEntriesCount = entries.size
+            totalJournalEntriesCount = entries.size,
+            totalVouchersCount = vouchers.size
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardStats())
 
@@ -142,19 +177,37 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         Formatters.currencySymbol = _currencySymbol.value
         viewModelScope.launch {
             repository.checkAndSeedInitialData()
-            // Clean up any previous demo/sample transactions to initialize the system cleanly
-            val isCleaned = prefs.getBoolean("system_data_cleaned_v2", false)
+            val isCleaned = prefs.getBoolean("system_data_cleaned_v3", false)
             if (!isCleaned) {
                 repository.clearInvoicesAndTransactionsOnly()
-                prefs.edit().putBoolean("system_data_cleaned_v2", true).apply()
+                prefs.edit().putBoolean("system_data_cleaned_v3", true).apply()
             }
         }
     }
 
+    // -------------------------------------------------------------
+    // Sequential Number Generators (1, 2, 3...)
+    // -------------------------------------------------------------
+    suspend fun getNextSalesInvoiceNumber(): String = repository.getNextSalesInvoiceNumber()
+    suspend fun getNextPurchaseInvoiceNumber(): String = repository.getNextPurchaseInvoiceNumber()
+    suspend fun getNextPurchaseBillNumber(): String = repository.getNextPurchaseInvoiceNumber()
+    suspend fun getNextSalesReturnNumber(): String = repository.getNextSalesReturnNumber()
+    suspend fun getNextPurchaseReturnNumber(): String = repository.getNextPurchaseReturnNumber()
+    suspend fun getNextReceiptVoucherNumber(): String = repository.getNextReceiptVoucherNumber()
+    suspend fun getNextPaymentVoucherNumber(): String = repository.getNextPaymentVoucherNumber()
+    suspend fun getNextVoucherNumber(type: VoucherType): String = when (type) {
+        VoucherType.RECEIPT -> repository.getNextReceiptVoucherNumber()
+        VoucherType.PAYMENT -> repository.getNextPaymentVoucherNumber()
+    }
+    suspend fun getNextJournalEntryNumber(): String = repository.getNextJournalEntryNumber()
+
+    // -------------------------------------------------------------
+    // System Reset & Settings Actions
+    // -------------------------------------------------------------
     fun clearInvoicesAndTransactions(onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
             repository.clearInvoicesAndTransactionsOnly()
-            showMessage("تم حذف جميع فواتير البيع والشراء والقيود وتصفير الأرصدة بنجاح")
+            showMessage("تم حذف جميع الفواتير والسندات والقيود وتصفير الأرصدة بنجاح")
             onSuccess()
         }
     }
@@ -167,15 +220,13 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun updateCurrency(newSymbol: String) {
-        val symbol = newSymbol.trim().ifEmpty { "ر.س" }
-        _currencySymbol.value = symbol
-        Formatters.currencySymbol = symbol
-        prefs.edit().putString("currency_symbol", symbol).apply()
-        showMessage("تم تغيير العملة بنجاح إلى: $symbol")
-    }
-
-    fun updateStoreSettings(name: String, phone: String, currency: String) {
+    fun updateStoreSettings(
+        name: String,
+        phone: String,
+        currency: String,
+        isTaxActive: Boolean,
+        defaultTax: Double
+    ) {
         val validName = name.trim().ifEmpty { "الحساب المتكامل" }
         val validPhone = phone.trim()
         val validCurrency = currency.trim().ifEmpty { "ر.س" }
@@ -183,15 +234,19 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         _storeName.value = validName
         _storePhone.value = validPhone
         _currencySymbol.value = validCurrency
+        _isTaxEnabled.value = isTaxActive
+        _defaultTaxRate.value = defaultTax
         Formatters.currencySymbol = validCurrency
 
         prefs.edit()
             .putString("store_name", validName)
             .putString("store_phone", validPhone)
             .putString("currency_symbol", validCurrency)
+            .putBoolean("is_tax_enabled", isTaxActive)
+            .putFloat("default_tax_rate", defaultTax.toFloat())
             .apply()
 
-        showMessage("تم حفظ إعدادات النظام بنجاح")
+        showMessage("تم حفظ إعدادات النظام والضريبة بنجاح")
     }
 
     fun setSection(section: AppSection) {
@@ -207,7 +262,7 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     // -------------------------------------------------------------
-    // General Ledger Actions & Calculations
+    // General Ledger & Chart of Accounts
     // -------------------------------------------------------------
     fun addAccount(account: Account, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
@@ -225,10 +280,15 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun deleteAccount(account: Account) {
+    fun deleteAccountSafe(account: Account, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            repository.deleteAccount(account)
-            showMessage("تم حذف الحساب: ${account.nameAr}")
+            val result = repository.deleteAccountSafe(account)
+            result.onSuccess {
+                showMessage("تم حذف الحساب: ${account.nameAr}")
+                onSuccess()
+            }.onFailure { ex ->
+                showMessage(ex.message ?: "لا يمكن حذف الحساب لوجود ارتباطات")
+            }
         }
     }
 
@@ -246,12 +306,24 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
                 entryNumber, date, description, referenceNumber, lines, source = "MANUAL"
             )
             result.onSuccess {
-                showMessage("تم ترحيل القيد المحاسبي بنجاح!")
+                showMessage("تم ترحيل القيد المحاسبي رقم $entryNumber بنجاح!")
                 onSuccess()
             }.onFailure { ex ->
                 val err = ex.message ?: "خطأ أثناء حفظ القيد"
                 showMessage(err)
                 onError(err)
+            }
+        }
+    }
+
+    fun deleteJournalEntrySafe(entry: JournalEntry, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val result = repository.deleteJournalEntrySafe(entry)
+            result.onSuccess {
+                showMessage("تم حذف القيد المحاسبي ${entry.entryNumber} بنجاح")
+                onSuccess()
+            }.onFailure { ex ->
+                showMessage(ex.message ?: "لا يمكن حذف هذا القيد")
             }
         }
     }
@@ -280,7 +352,7 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    // Account Statement / Ledger (كشف حساب)
+    // Account Statement / Ledger (كشف حساب تفصيلي)
     fun getAccountStatement(accountId: Long): List<AccountStatementRow> {
         val acc = accounts.value.find { it.id == accountId } ?: return emptyList()
         val lines = journalLines.value.filter { it.accountId == accountId }
@@ -289,7 +361,6 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         var running = acc.initialBalance
         val rows = mutableListOf<AccountStatementRow>()
 
-        // Initial balance row if non zero
         if (acc.initialBalance != 0.0) {
             rows.add(
                 AccountStatementRow(
@@ -324,8 +395,51 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         return rows
     }
 
+    // Income Statement with Cost of Goods Sold (COGS) Calculation
+    fun calculateIncomeStatement(): IncomeStatementData {
+        val allSales = salesInvoices.value.filter { !it.isCancelled }
+        val allReturns = salesReturns.value
+
+        val grossSales = allSales.sumOf { it.subtotal - it.discount }
+        val salesReturnsTotal = allReturns.sumOf { it.subtotal }
+        val netSales = (grossSales - salesReturnsTotal).coerceAtLeast(0.0)
+
+        // COGS from stock movements or products sold
+        val movements = stockMovements.value
+        val salesMovementCost = movements.filter { it.movementType == MovementType.SALE }
+            .sumOf { it.quantity * it.unitPrice }
+        val returnsMovementCost = movements.filter { it.movementType == MovementType.RETURN_IN }
+            .sumOf { it.quantity * it.unitPrice }
+        val cogs = (salesMovementCost - returnsMovementCost).coerceAtLeast(0.0)
+
+        val grossProfit = netSales - cogs
+
+        val expenseAccounts = accounts.value.filter { it.type == AccountType.EXPENSE && !it.isGroup }
+        val detailedExpenses = expenseAccounts.map { it.nameAr to it.currentBalance }
+        val totalExpenses = expenseAccounts.sumOf { it.currentBalance }
+
+        val otherRevenueAccounts = accounts.value.filter { it.type == AccountType.REVENUE && !it.isGroup && it.code != "41" && it.code != "412" }
+        val detailedRevenues = otherRevenueAccounts.map { it.nameAr to it.currentBalance }
+        val otherRevenues = otherRevenueAccounts.sumOf { it.currentBalance }
+
+        val netProfit = (grossProfit + otherRevenues) - totalExpenses
+
+        return IncomeStatementData(
+            grossSales = grossSales,
+            salesReturns = salesReturnsTotal,
+            netSales = netSales,
+            cogs = cogs,
+            grossProfit = grossProfit,
+            otherRevenues = otherRevenues,
+            totalOperatingExpenses = totalExpenses,
+            detailedExpenses = detailedExpenses,
+            detailedRevenues = detailedRevenues,
+            netProfit = netProfit
+        )
+    }
+
     // -------------------------------------------------------------
-    // Sales Actions
+    // Sales Invoices Actions
     // -------------------------------------------------------------
     fun createSalesInvoice(
         invoiceNumber: String,
@@ -335,6 +449,7 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         items: List<SalesInvoiceItem>,
         discount: Double,
         taxRate: Double,
+        taxAmountOverride: Double?,
         paymentType: PaymentType,
         notes: String,
         onSuccess: () -> Unit = {},
@@ -342,10 +457,10 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
     ) {
         viewModelScope.launch {
             val result = repository.createSalesInvoice(
-                invoiceNumber, date, customerId, customerName, items, discount, taxRate, paymentType, notes
+                invoiceNumber, date, customerId, customerName, items, discount, taxRate, taxAmountOverride, paymentType, notes
             )
             result.onSuccess {
-                showMessage("تم إصدار فاتورة المبيعات وتحديث المخزون والقيود بنجاح!")
+                showMessage("تم إصدار فاتورة المبيعات رقم $invoiceNumber بنجاح!")
                 onSuccess()
             }.onFailure { ex ->
                 val err = ex.message ?: "خطأ في إنشاء الفاتورة"
@@ -359,6 +474,211 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         return repository.getSalesInvoiceItems(invoiceId)
     }
 
+    fun deleteSalesInvoice(invoice: SalesInvoice, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val result = repository.deleteSalesInvoice(invoice)
+            result.onSuccess {
+                showMessage("تم حذف فاتورة المبيعات رقم ${invoice.invoiceNumber} وإلغاء أثرها المحاسبي والمخزني")
+                onSuccess()
+            }.onFailure { ex ->
+                showMessage(ex.message ?: "خطأ في حذف الفاتورة")
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Sales Returns Actions
+    // -------------------------------------------------------------
+    fun createSalesReturn(
+        returnNumber: String,
+        originalInvoiceNumber: String,
+        date: Long,
+        customerId: Long?,
+        customerName: String,
+        items: List<SalesReturnItem>,
+        taxRate: Double,
+        taxAmountOverride: Double?,
+        paymentType: PaymentType,
+        notes: String,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val result = repository.createSalesReturn(
+                returnNumber, originalInvoiceNumber, date, customerId, customerName, items, taxRate, taxAmountOverride, paymentType, notes
+            )
+            result.onSuccess {
+                showMessage("تم إصدار مردود المبيعات رقم $returnNumber وإعادة الأصناف للمخزن بنجاح!")
+                onSuccess()
+            }.onFailure { ex ->
+                val err = ex.message ?: "خطأ في تسجيل مردود المبيعات"
+                showMessage(err)
+                onError(err)
+            }
+        }
+    }
+
+    suspend fun getSalesReturnItems(returnId: Long): List<SalesReturnItem> {
+        return repository.getSalesReturnItems(returnId)
+    }
+
+    fun deleteSalesReturn(sReturn: SalesReturn, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val result = repository.deleteSalesReturn(sReturn)
+            result.onSuccess {
+                showMessage("تم حذف مردود المبيعات رقم ${sReturn.returnNumber} بنجاح")
+                onSuccess()
+            }.onFailure { ex ->
+                showMessage(ex.message ?: "خطأ في حذف المردود")
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Purchases Actions
+    // -------------------------------------------------------------
+    fun createPurchaseInvoice(
+        billNumber: String,
+        supplierInvoiceRef: String,
+        date: Long,
+        supplierId: Long?,
+        supplierName: String,
+        items: List<PurchaseInvoiceItem>,
+        discount: Double,
+        taxRate: Double,
+        taxAmountOverride: Double?,
+        paymentType: PaymentType,
+        notes: String,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val result = repository.createPurchaseInvoice(
+                billNumber, supplierInvoiceRef, date, supplierId, supplierName, items, discount, taxRate, taxAmountOverride, paymentType, notes
+            )
+            result.onSuccess {
+                showMessage("تم حفظ فاتورة المشتريات رقم $billNumber وإضافة الكميات للمخزن بنجاح!")
+                onSuccess()
+            }.onFailure { ex ->
+                val err = ex.message ?: "خطأ في حفظ فاتورة المشتريات"
+                showMessage(err)
+                onError(err)
+            }
+        }
+    }
+
+    suspend fun getPurchaseInvoiceItems(billId: Long): List<PurchaseInvoiceItem> {
+        return repository.getPurchaseInvoiceItems(billId)
+    }
+
+    fun deletePurchaseInvoice(bill: PurchaseInvoice, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val result = repository.deletePurchaseInvoice(bill)
+            result.onSuccess {
+                showMessage("تم حذف فاتورة المشتريات رقم ${bill.billNumber} وإلغاء أثرها المحاسبي والمخزني")
+                onSuccess()
+            }.onFailure { ex ->
+                showMessage(ex.message ?: "خطأ في حذف فاتورة المشتريات")
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Purchase Returns Actions
+    // -------------------------------------------------------------
+    fun createPurchaseReturn(
+        returnNumber: String,
+        originalBillNumber: String,
+        date: Long,
+        supplierId: Long?,
+        supplierName: String,
+        items: List<PurchaseReturnItem>,
+        taxRate: Double,
+        taxAmountOverride: Double?,
+        paymentType: PaymentType,
+        notes: String,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val result = repository.createPurchaseReturn(
+                returnNumber, originalBillNumber, date, supplierId, supplierName, items, taxRate, taxAmountOverride, paymentType, notes
+            )
+            result.onSuccess {
+                showMessage("تم إصدار مردود المشتريات رقم $returnNumber وخصم الكميات من المخزن بنجاح!")
+                onSuccess()
+            }.onFailure { ex ->
+                val err = ex.message ?: "خطأ في تسجيل مردود المشتريات"
+                showMessage(err)
+                onError(err)
+            }
+        }
+    }
+
+    suspend fun getPurchaseReturnItems(returnId: Long): List<PurchaseReturnItem> {
+        return repository.getPurchaseReturnItems(returnId)
+    }
+
+    fun deletePurchaseReturn(pReturn: PurchaseReturn, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val result = repository.deletePurchaseReturn(pReturn)
+            result.onSuccess {
+                showMessage("تم حذف مردود المشتريات رقم ${pReturn.returnNumber} بنجاح")
+                onSuccess()
+            }.onFailure { ex ->
+                showMessage(ex.message ?: "خطأ في حذف مردود المشتريات")
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Vouchers Actions (سندات القبض والصرف)
+    // -------------------------------------------------------------
+    fun createVoucher(
+        voucherNumber: String,
+        type: VoucherType,
+        date: Long,
+        amount: Double,
+        paymentType: PaymentType,
+        partnerType: VoucherPartnerType,
+        partnerId: Long?,
+        partnerName: String,
+        accountId: Long?,
+        accountName: String,
+        notes: String,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val result = repository.createVoucher(
+                voucherNumber, type, date, amount, paymentType, partnerType, partnerId, partnerName, accountId, accountName, notes
+            )
+            result.onSuccess {
+                showMessage("تم إصدار ${type.arabicName} رقم $voucherNumber بنجاح!")
+                onSuccess()
+            }.onFailure { ex ->
+                val err = ex.message ?: "خطأ في إصدار السند"
+                showMessage(err)
+                onError(err)
+            }
+        }
+    }
+
+    fun deleteVoucher(voucher: Voucher, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val result = repository.deleteVoucher(voucher)
+            result.onSuccess {
+                showMessage("تم حذف ${voucher.type.arabicName} رقم ${voucher.voucherNumber} بنجاح")
+                onSuccess()
+            }.onFailure { ex ->
+                showMessage(ex.message ?: "خطأ في حذف السند")
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Customers & Suppliers Safe Actions
+    // -------------------------------------------------------------
     fun addCustomer(customer: Customer, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
             repository.addCustomer(customer)
@@ -375,47 +695,16 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun deleteCustomer(customer: Customer) {
+    fun deleteCustomerSafe(customer: Customer, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            repository.deleteCustomer(customer)
-            showMessage("تم حذف العميل: ${customer.name}")
-        }
-    }
-
-    // -------------------------------------------------------------
-    // Purchases Actions
-    // -------------------------------------------------------------
-    fun createPurchaseInvoice(
-        billNumber: String,
-        supplierInvoiceRef: String,
-        date: Long,
-        supplierId: Long?,
-        supplierName: String,
-        items: List<PurchaseInvoiceItem>,
-        discount: Double,
-        taxRate: Double,
-        paymentType: PaymentType,
-        notes: String,
-        onSuccess: () -> Unit = {},
-        onError: (String) -> Unit = {}
-    ) {
-        viewModelScope.launch {
-            val result = repository.createPurchaseInvoice(
-                billNumber, supplierInvoiceRef, date, supplierId, supplierName, items, discount, taxRate, paymentType, notes
-            )
+            val result = repository.deleteCustomerSafe(customer)
             result.onSuccess {
-                showMessage("تم حفظ فاتورة المشتريات وإضافة الكميات للمخزن بنجاح!")
+                showMessage("تم حذف العميل: ${customer.name}")
                 onSuccess()
             }.onFailure { ex ->
-                val err = ex.message ?: "خطأ في حفظ فاتورة المشتريات"
-                showMessage(err)
-                onError(err)
+                showMessage(ex.message ?: "لا يمكن حذف هذا العميل لوجود عمليات مرتبطة به")
             }
         }
-    }
-
-    suspend fun getPurchaseInvoiceItems(billId: Long): List<PurchaseInvoiceItem> {
-        return repository.getPurchaseInvoiceItems(billId)
     }
 
     fun addSupplier(supplier: Supplier, onSuccess: () -> Unit = {}) {
@@ -434,15 +723,20 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun deleteSupplier(supplier: Supplier) {
+    fun deleteSupplierSafe(supplier: Supplier, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            repository.deleteSupplier(supplier)
-            showMessage("تم حذف المورد: ${supplier.name}")
+            val result = repository.deleteSupplierSafe(supplier)
+            result.onSuccess {
+                showMessage("تم حذف المورد: ${supplier.name}")
+                onSuccess()
+            }.onFailure { ex ->
+                showMessage(ex.message ?: "لا يمكن حذف هذا المورد لوجود عمليات مرتبطة به")
+            }
         }
     }
 
     // -------------------------------------------------------------
-    // Inventory Actions
+    // Products & Inventory Safe Actions
     // -------------------------------------------------------------
     fun addProduct(product: Product, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
@@ -455,15 +749,20 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
     fun updateProduct(product: Product, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
             repository.updateProduct(product)
-            showMessage("تم تعديل الصنف")
+            showMessage("تم تعديل بيانات الصنف: ${product.nameAr}")
             onSuccess()
         }
     }
 
-    fun deleteProduct(product: Product) {
+    fun deleteProductSafe(product: Product, onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            repository.deleteProduct(product)
-            showMessage("تم حذف الصنف: ${product.nameAr}")
+            val result = repository.deleteProductSafe(product)
+            result.onSuccess {
+                showMessage("تم حذف الصنف: ${product.nameAr}")
+                onSuccess()
+            }.onFailure { ex ->
+                showMessage(ex.message ?: "لا يمكن حذف هذا الصنف لوجود حركات مرتبطة به")
+            }
         }
     }
 

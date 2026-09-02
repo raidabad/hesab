@@ -69,14 +69,19 @@ fun SettingsDialog(
     currentStoreName: String,
     currentStorePhone: String,
     currentCurrencySymbol: String,
+    isTaxActive: Boolean,
+    currentTaxRate: Double,
     onDismiss: () -> Unit,
-    onSave: (storeName: String, storePhone: String, currencySymbol: String) -> Unit,
+    onSave: (storeName: String, storePhone: String, currencySymbol: String, isTaxEnabled: Boolean, defaultTaxRate: Double) -> Unit,
     onClearTransactions: () -> Unit = {},
     onResetAllData: () -> Unit = {}
 ) {
     var storeName by remember { mutableStateOf(currentStoreName) }
     var storePhone by remember { mutableStateOf(currentStorePhone) }
     var selectedCurrency by remember { mutableStateOf(currentCurrencySymbol) }
+    var isTaxEnabled by remember { mutableStateOf(isTaxActive) }
+    var taxRateInput by remember { mutableStateOf(currentTaxRate.toString()) }
+
     var customCurrencyInput by remember { mutableStateOf("") }
     var isCustomCurrencySelected by remember {
         mutableStateOf(PRESET_CURRENCIES.none { it.symbol == currentCurrencySymbol })
@@ -92,7 +97,7 @@ fun SettingsDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.95f)
-                .fillMaxHeight(0.88f)
+                .fillMaxHeight(0.90f)
                 .clip(RoundedCornerShape(24.dp))
                 .testTag("settings_dialog"),
             color = MaterialTheme.colorScheme.surface,
@@ -103,7 +108,7 @@ fun SettingsDialog(
                     .fillMaxSize()
                     .padding(20.dp)
             ) {
-                // Header with Gradient
+                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -131,13 +136,13 @@ fun SettingsDialog(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "إعدادات النظام والعملة",
-                                style = MaterialTheme.typography.titleLarge,
+                                text = "إعدادات النظام والضريبة والعملة",
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "تهيئة بيانات النشاط والعملة الافتراضية",
+                                text = "تخصيص الضريبة، العملة، وبيانات النشاط",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -152,7 +157,7 @@ fun SettingsDialog(
                     }
                 }
 
-                Divider(
+                HorizontalDivider(
                     modifier = Modifier.padding(vertical = 12.dp),
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                 )
@@ -164,7 +169,94 @@ fun SettingsDialog(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Section 1: Currency Selection
+                    // Section 1: Tax Settings (إعدادات الضريبة)
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Percent,
+                                        contentDescription = null,
+                                        tint = EmeraldPrimary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = "ضريبة القيمة المضافة (VAT)",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "إظهار أو إخفاء حقول الضريبة وتحديد النسبة الافتراضية",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Switch(
+                                    checked = isTaxEnabled,
+                                    onCheckedChange = { isTaxEnabled = it },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = EmeraldPrimary)
+                                )
+                            }
+
+                            AnimatedVisibility(visible = isTaxEnabled) {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    OutlinedTextField(
+                                        value = taxRateInput,
+                                        onValueChange = { taxRateInput = it },
+                                        label = { Text("نسبة الضريبة الافتراضية للفواتير (%)") },
+                                        placeholder = { Text("مثال: 15 أو 5 أو 0") },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.Calculate, contentDescription = null)
+                                        },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+
+                                    // Quick Presets
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf("0.0" to "0% (معفاة)", "5.0" to "5% ضريبة", "15.0" to "15% قياسية").forEach { (rate, label) ->
+                                            OutlinedButton(
+                                                onClick = { taxRateInput = rate },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text(label, style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                    }
+
+                                    Text(
+                                        text = "* ملاحظة: يمكنك دائماً تغيير نسبة أو قيمة الضريبة يدوياً داخل كل فاتورة أثناء إصدارها.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = EmeraldPrimary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 2: Currency Selection
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
@@ -201,7 +293,7 @@ fun SettingsDialog(
                                     color = EmeraldPrimary.copy(alpha = 0.15f)
                                 ) {
                                     Text(
-                                        text = "العملة الحالية: $selectedCurrency",
+                                        text = "العملة: $selectedCurrency",
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
@@ -210,80 +302,60 @@ fun SettingsDialog(
                                 }
                             }
 
-                            Text(
-                                text = "اختر العملة التي تريد أن تظهر في كافة الفواتير والقيود والتقارير:",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            // Quick preset chips
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                val chunkedCurrencies = PRESET_CURRENCIES.chunked(3)
-                                chunkedCurrencies.forEach { rowCurrencies ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        rowCurrencies.forEach { currency ->
-                                            val isSelected = selectedCurrency == currency.symbol && !isCustomCurrencySelected
-                                            Surface(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .height(48.dp)
-                                                    .clip(RoundedCornerShape(12.dp))
-                                                    .clickable {
-                                                        selectedCurrency = currency.symbol
-                                                        isCustomCurrencySelected = false
-                                                    }
-                                                    .border(
-                                                        width = if (isSelected) 2.dp else 1.dp,
-                                                        color = if (isSelected) EmeraldPrimary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
-                                                        shape = RoundedCornerShape(12.dp)
-                                                    ),
-                                                color = if (isSelected) EmeraldPrimary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .padding(horizontal = 6.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.Center
-                                                ) {
-                                                    Text(
-                                                        text = currency.flagEmoji,
-                                                        fontSize = 16.sp
-                                                    )
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text(
-                                                        text = "${currency.symbol}",
-                                                        style = MaterialTheme.typography.labelMedium,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                        color = if (isSelected) EmeraldPrimary else MaterialTheme.colorScheme.onSurface
-                                                    )
+                            // Presets grid
+                            val chunkedCurrencies = PRESET_CURRENCIES.chunked(3)
+                            chunkedCurrencies.forEach { rowCurrencies ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    rowCurrencies.forEach { currency ->
+                                        val isSelected = selectedCurrency == currency.symbol && !isCustomCurrencySelected
+                                        Surface(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(44.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .clickable {
+                                                    selectedCurrency = currency.symbol
+                                                    isCustomCurrencySelected = false
                                                 }
+                                                .border(
+                                                    width = if (isSelected) 2.dp else 1.dp,
+                                                    color = if (isSelected) EmeraldPrimary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                                                    shape = RoundedCornerShape(12.dp)
+                                                ),
+                                            color = if (isSelected) EmeraldPrimary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Center
+                                            ) {
+                                                Text(text = currency.flagEmoji, fontSize = 16.sp)
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = currency.symbol,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (isSelected) EmeraldPrimary else MaterialTheme.colorScheme.onSurface
+                                                )
                                             }
                                         }
-                                        // Fill remaining slots if row has fewer than 3
-                                        repeat(3 - rowCurrencies.size) {
-                                            Spacer(modifier = Modifier.weight(1f))
-                                        }
+                                    }
+                                    repeat(3 - rowCurrencies.size) {
+                                        Spacer(modifier = Modifier.weight(1f))
                                     }
                                 }
                             }
 
-                            // Custom Currency Option
+                            // Custom Currency
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .clickable {
-                                        isCustomCurrencySelected = true
-                                    }
-                                    .background(
-                                        if (isCustomCurrencySelected) EmeraldPrimary.copy(alpha = 0.1f) else Color.Transparent
-                                    )
+                                    .clickable { isCustomCurrencySelected = true }
+                                    .background(if (isCustomCurrencySelected) EmeraldPrimary.copy(alpha = 0.1f) else Color.Transparent)
                                     .padding(vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -293,7 +365,7 @@ fun SettingsDialog(
                                     colors = RadioButtonDefaults.colors(selectedColor = EmeraldPrimary)
                                 )
                                 Text(
-                                    text = "إدخال عملة مخصصة (رمز آخر):",
+                                    text = "إدخال رمز عملة مخصص:",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -304,26 +376,18 @@ fun SettingsDialog(
                                     value = customCurrencyInput,
                                     onValueChange = {
                                         customCurrencyInput = it
-                                        if (it.isNotBlank()) {
-                                            selectedCurrency = it.trim()
-                                        }
+                                        if (it.isNotBlank()) selectedCurrency = it.trim()
                                     },
-                                    label = { Text("رمز العملة المخصصة (مثال: USD, ل.س, دينار)") },
-                                    placeholder = { Text("اكتب رمز العملة هنا...") },
-                                    leadingIcon = {
-                                        Icon(Icons.Default.Edit, contentDescription = null, tint = EmeraldPrimary)
-                                    },
+                                    label = { Text("رمز العملة المخصصة") },
                                     singleLine = true,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("custom_currency_field"),
+                                    modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp)
                                 )
                             }
                         }
                     }
 
-                    // Section 2: Store / Business Info
+                    // Section 3: Store Details
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
@@ -336,86 +400,52 @@ fun SettingsDialog(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Storefront,
-                                    contentDescription = null,
-                                    tint = EmeraldPrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                Icon(Icons.Default.Storefront, contentDescription = null, tint = EmeraldPrimary, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "بيانات المنشأة / المحل",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Text(text = "بيانات النشاط التجاري", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             }
 
                             OutlinedTextField(
                                 value = storeName,
                                 onValueChange = { storeName = it },
-                                label = { Text("اسم النشاط التجاري / المحل") },
-                                placeholder = { Text("مثال: مؤسسة الأمانة للتجارة") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Business, contentDescription = null)
-                                },
+                                label = { Text("اسم المحل أو المؤسسة") },
                                 singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("store_name_field"),
+                                modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)
                             )
 
                             OutlinedTextField(
                                 value = storePhone,
                                 onValueChange = { storePhone = it },
-                                label = { Text("رقم هاتف التواصل / واتساب (اختياري)") },
-                                placeholder = { Text("مثال: 0501234567") },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Phone, contentDescription = null)
-                                },
+                                label = { Text("رقم الهاتف أو الجوال") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                                 singleLine = true,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("store_phone_field"),
+                                modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp)
                             )
                         }
                     }
 
-                    // Section 3: System Initialization & Data Clearing (تهيئة وتصفير النظام)
+                    // Section 4: Reset & Clean Data
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = Color(0xFFFEF2F2)
-                        ),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFECACA))
                     ) {
                         Column(
                             modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.DeleteSweep,
-                                    contentDescription = null,
-                                    tint = ErrorRed,
-                                    modifier = Modifier.size(22.dp)
-                                )
+                                Icon(Icons.Default.DeleteSweep, contentDescription = null, tint = ErrorRed, modifier = Modifier.size(22.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "تهيئة وتصفير النظام",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ErrorRed
-                                )
+                                Text(text = "تهيئة وتصفير النظام", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = ErrorRed)
                             }
 
                             Text(
-                                text = "حذف المعلومات والعمليات السابقة (فواتير المبيعات، فواتير المشتريات، والقيود اليومية) لبدء العمل على نظام نظيف وجاهز:",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = "حذف كافة الفواتير والسندات والقيود للبدء من الصفر على نظافة:",
+                                style = MaterialTheme.typography.bodySmall
                             )
 
                             Row(
@@ -424,213 +454,78 @@ fun SettingsDialog(
                             ) {
                                 Button(
                                     onClick = { showClearConfirmDialog = true },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("clear_transactions_btn"),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = ErrorRed
-                                    ),
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = ErrorRed),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "حذف الفواتير وتصفير الأرصدة",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Text("تصفير الفواتير والقيود", style = MaterialTheme.typography.labelSmall)
                                 }
 
                                 OutlinedButton(
                                     onClick = { showResetAllConfirmDialog = true },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("reset_all_btn"),
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        contentColor = ErrorRed
-                                    ),
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed),
                                     border = androidx.compose.foundation.BorderStroke(1.dp, ErrorRed),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "تصفير شامل للمصنع",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Text("إعادة ضبط المصنع", style = MaterialTheme.typography.labelSmall)
                                 }
-                            }
-                        }
-                    }
-
-                    // Section 4: System Status & Database info
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFFF0FDF4),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBBF7D0))
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Shield,
-                                contentDescription = null,
-                                tint = IncomeGreen,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "قاعدة بيانات محلية آمنة 100%",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF166534)
-                                )
-                                Text(
-                                    text = "جميع العمليات والحسابات تُحفظ محلياً على جهازك بدقة فورية وسرعة فائقة.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF15803D)
-                                )
                             }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Bottom Buttons
+                // Footer Save Actions
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(50.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
+                    TextButton(onClick = onDismiss) {
                         Text("إلغاء")
                     }
-
+                    Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
-                            val finalCurrency = if (isCustomCurrencySelected && customCurrencyInput.isNotBlank()) {
-                                customCurrencyInput.trim()
-                            } else {
-                                selectedCurrency
-                            }
-                            onSave(storeName, storePhone, finalCurrency)
+                            val parsedTax = if (isTaxEnabled) (taxRateInput.toDoubleOrNull() ?: 0.0) else 0.0
+                            onSave(storeName, storePhone, selectedCurrency, isTaxEnabled, parsedTax)
+                            onDismiss()
                         },
-                        modifier = Modifier
-                            .weight(1.5f)
-                            .height(50.dp)
-                            .testTag("save_settings_button"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary)
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldPrimary),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "حفظ الإعدادات والعملة",
-                            fontWeight = FontWeight.Bold
-                        )
+                        Icon(Icons.Default.Check, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("حفظ التغييرات", fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
     }
 
-    // Confirmation Dialog for Clearing Invoices & Transactions
     if (showClearConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearConfirmDialog = false },
-            icon = {
-                Icon(
-                    Icons.Default.Warning,
-                    contentDescription = null,
-                    tint = ErrorRed,
-                    modifier = Modifier.size(36.dp)
-                )
-            },
-            title = {
-                Text(
-                    text = "تأكيد حذف الفواتير وتصفير الأرصدة",
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-            },
-            text = {
-                Text(
-                    text = "هل أنت متأكد من رغبتك في حذف كافة فواتير المبيعات والمشتريات والقيود اليومية وتصفير أرصدة الحسابات؟\n\nسيتم الاحتفاظ بشجرة الحسابات وقائمة المنتجات مع تصفير كمياتها.",
-                    textAlign = TextAlign.Center
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showClearConfirmDialog = false
-                        onClearTransactions()
-                        onDismiss()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
-                ) {
-                    Text("نعم، احذف الفواتير والعمليات")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showClearConfirmDialog = false }) {
-                    Text("إلغاء")
-                }
+        ConfirmDeleteDialog(
+            title = "تأكيد تصفير العمليات",
+            message = "هل أنت متأكد من رغبتك في حذف جميع فواتير المبيعات والمشتريات والسندات والقيود وتصفير الأرصدة؟",
+            onDismiss = { showClearConfirmDialog = false },
+            onConfirm = {
+                showClearConfirmDialog = false
+                onClearTransactions()
+                onDismiss()
             }
         )
     }
 
-    // Confirmation Dialog for Complete Factory Reset
     if (showResetAllConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showResetAllConfirmDialog = false },
-            icon = {
-                Icon(
-                    Icons.Default.DeleteForever,
-                    contentDescription = null,
-                    tint = ErrorRed,
-                    modifier = Modifier.size(36.dp)
-                )
-            },
-            title = {
-                Text(
-                    text = "تأكيد التهيئة الشاملة للنظام",
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-            },
-            text = {
-                Text(
-                    text = "تحذير: سيتم مسح كافة البيانات المسجلة (الفواتير، المنتجات، العملاء، الموردين) وإعادة بناء دليل الحسابات برصيد صفر لبدء النظام كنسخة جديدة تماماً.\n\nهل ترغب بالمتابعة؟",
-                    textAlign = TextAlign.Center
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showResetAllConfirmDialog = false
-                        onResetAllData()
-                        onDismiss()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
-                ) {
-                    Text("نعم، تهيئة شاملة")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { showResetAllConfirmDialog = false }) {
-                    Text("إلغاء")
-                }
+        ConfirmDeleteDialog(
+            title = "تأكيد إعادة ضبط المصنع بالكامل",
+            message = "سيتم حذف كافة الأصناف والعملاء والموردين وجميع العمليات وإعادة دليل الحسابات الافتراضي النظيف. هل تريد المتابعة؟",
+            onDismiss = { showResetAllConfirmDialog = false },
+            onConfirm = {
+                showResetAllConfirmDialog = false
+                onResetAllData()
+                onDismiss()
             }
         )
     }

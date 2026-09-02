@@ -41,6 +41,31 @@ interface InvoiceDao {
     @Query("SELECT * FROM purchase_invoice_items WHERE billId = :billId")
     suspend fun getPurchaseInvoiceItems(billId: Long): List<PurchaseInvoiceItem>
 
+    // Counts and checks
+    @Query("SELECT COUNT(*) FROM sales_invoices")
+    suspend fun getSalesInvoiceCount(): Int
+
+    @Query("SELECT COUNT(*) FROM purchase_invoices")
+    suspend fun getPurchaseInvoiceCount(): Int
+
+    @Query("SELECT COUNT(*) FROM sales_invoices WHERE customerId = :customerId")
+    suspend fun getSalesInvoiceCountForCustomer(customerId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM purchase_invoices WHERE supplierId = :supplierId")
+    suspend fun getPurchaseInvoiceCountForSupplier(supplierId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM sales_invoice_items WHERE productId = :productId")
+    suspend fun getSalesItemCountForProduct(productId: Long): Int
+
+    @Query("SELECT COUNT(*) FROM purchase_invoice_items WHERE productId = :productId")
+    suspend fun getPurchaseItemCountForProduct(productId: Long): Int
+
+    @Update
+    suspend fun updateSalesInvoice(invoice: SalesInvoice)
+
+    @Update
+    suspend fun updatePurchaseInvoice(invoice: PurchaseInvoice)
+
     // Single Deletions
     @Delete
     suspend fun deleteSalesInvoice(invoice: SalesInvoice)

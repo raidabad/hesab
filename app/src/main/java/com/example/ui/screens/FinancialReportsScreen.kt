@@ -29,13 +29,31 @@ fun FinancialReportsScreen(
 
     val accounts by viewModel.accounts.collectAsState()
     val trialBalanceRows = remember(accounts) { viewModel.calculateTrialBalance() }
-    val totalRevenues = remember(accounts) {
-        accounts.filter { it.type == AccountType.REVENUE && !it.isGroup }.sumOf { it.currentBalance }
-    }
-    val totalExpenses = remember(accounts) {
-        accounts.filter { it.type == AccountType.EXPENSE && !it.isGroup }.sumOf { it.currentBalance }
-    }
-    val netProfit = remember(totalRevenues, totalExpenses) { totalRevenues - totalExpenses }
+
+    // Revenue calculations
+    val salesRevenueAccount = accounts.firstOrNull { it.code == "4101" }
+    val salesReturnsAccount = accounts.firstOrNull { it.code == "4102" }
+    val otherRevenueAccounts = accounts.filter { it.type == AccountType.REVENUE && !it.isGroup && it.code != "4101" && it.code != "4102" }
+
+    val grossSales = salesRevenueAccount?.currentBalance ?: 0.0
+    val salesReturnsAmount = salesReturnsAccount?.currentBalance ?: 0.0
+    val netSales = (grossSales - salesReturnsAmount).coerceAtLeast(0.0)
+
+    // COGS calculation (تكلفة البضاعة المباعة)
+    val cogsAccount = accounts.firstOrNull { it.code == "5101" }
+    val cogsAmount = cogsAccount?.currentBalance ?: 0.0
+
+    // Gross Profit (مجمل الربح = صافي المبيعات - تكلفة البضاعة)
+    val grossProfit = netSales - cogsAmount
+
+    // Operating expenses (المصروفات التشغيلية والعمومية الأخرى عدا تكلفة البضاعة)
+    val otherExpenseAccounts = accounts.filter { it.type == AccountType.EXPENSE && !it.isGroup && it.code != "5101" }
+    val totalOperatingExpenses = otherExpenseAccounts.sumOf { it.currentBalance }
+
+    // Net Profit (صافي الربح)
+    val otherRevenues = otherRevenueAccounts.sumOf { it.currentBalance }
+    val netProfit = grossProfit + otherRevenues - totalOperatingExpenses
+
     val totalAssets = remember(accounts) {
         accounts.filter { it.type == AccountType.ASSET && !it.isGroup }.sumOf { it.currentBalance }
     }
@@ -64,7 +82,7 @@ fun FinancialReportsScreen(
             Tab(
                 selected = selectedReportTab == 1,
                 onClick = { selectedReportTab = 1 },
-                text = { Text("قائمة الدخل (الأرباح)") }
+                text = { Text("قائمة الدخل وتكلفة البضاعة") }
             )
             Tab(
                 selected = selectedReportTab == 2,
@@ -141,17 +159,14 @@ fun FinancialReportsScreen(
             }
 
             1 -> {
-                // Income Statement (قائمة الدخل)
-                val revenueAccounts = accounts.filter { it.type == AccountType.REVENUE && !it.isGroup }
-                val expenseAccounts = accounts.filter { it.type == AccountType.EXPENSE && !it.isGroup }
-
+                // Income Statement (قائمة الدخل مع تكلفة البضاعة المباعة ومجمل وصافي الربح)
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Summary Banner
+                    // Summary Banner: Net Profit
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -159,7 +174,7 @@ fun FinancialReportsScreen(
                         )
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text("صافي الربح / الخسارة للفترة الحالية", style = MaterialTheme.typography.titleSmall)
+                            Text("صافي الأرباح / الخسائر للفترة", style = MaterialTheme.typography.titleSmall)
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = Formatters.currency(netProfit),
@@ -170,52 +185,114 @@ fun FinancialReportsScreen(
                         }
                     }
 
-                    // Revenues
+                    // 1. Trading Account / Sales & COGS Section
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("حساب المتاجرة وتكلفة البضاعة المباعة (COGS)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("إجمالي إيراد المبيعات:")
+                                Text(Formatters.currency(grossSales), fontWeight = FontWeight.Bold)
+                            }
+                            if (salesReturnsAmount > 0) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("يخصم: مردود المبيعات:")
+                                    Text("(${Formatters.currency(salesReturnsAmount)})", color = ErrorRed)
+                                }
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("صافي المبيعات:", fontWeight = FontWeight.SemiBold)
+                                Text(Formatters.currency(netSales), fontWeight = FontWeight.Bold, color = SuccessGreen)
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("تكلفة البضاعة المباعة (COGS):", fontWeight = FontWeight.Bold, color = AmberWarning)
+                                Text("(${Formatters.currency(cogsAmount)})", fontWeight = FontWeight.Bold, color = AmberWarning)
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            HorizontalDivider()
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("مجمل الربح (Gross Profit):", fontWeight = FontWeight.Bold)
+                                Text(
+                                    Formatters.currency(grossProfit),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (grossProfit >= 0) SuccessGreen else ErrorRed,
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                            }
+                        }
+                    }
+
+                    // 2. Operating & General Expenses
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("الإيرادات (Revenues)", fontWeight = FontWeight.Bold, color = SuccessGreen)
-                                Text(Formatters.currency(totalRevenues), fontWeight = FontWeight.Bold, color = SuccessGreen)
+                                Text("المصروفات التشغيلية والعمومية", fontWeight = FontWeight.Bold, color = ErrorRed)
+                                Text(Formatters.currency(totalOperatingExpenses), fontWeight = FontWeight.Bold, color = ErrorRed)
                             }
                             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                            revenueAccounts.forEach { acc ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(acc.nameAr, style = MaterialTheme.typography.bodyMedium)
-                                    Text(Formatters.currency(acc.currentBalance), fontWeight = FontWeight.SemiBold)
+
+                            if (otherExpenseAccounts.isEmpty()) {
+                                Text("لا توجد مصروفات إضافية مسجلة", style = MaterialTheme.typography.bodySmall, color = GrayMedium)
+                            } else {
+                                otherExpenseAccounts.forEach { acc ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 3.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("${acc.code} - ${acc.nameAr}", style = MaterialTheme.typography.bodyMedium)
+                                        Text(Formatters.currency(acc.currentBalance), fontWeight = FontWeight.SemiBold)
+                                    }
                                 }
                             }
                         }
                     }
 
-                    // Expenses
+                    // 3. Final Net Profit Calculation
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        colors = CardDefaults.cardColors(containerColor = EmeraldContainer)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("المصروفات (Expenses)", fontWeight = FontWeight.Bold, color = ErrorRed)
-                                Text(Formatters.currency(totalExpenses), fontWeight = FontWeight.Bold, color = ErrorRed)
+                                Text("مجمل الربح من المبيعات:")
+                                Text(Formatters.currency(grossProfit), fontWeight = FontWeight.Bold)
+                            }
+                            if (otherRevenues > 0) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("يضاف: إيرادات أخرى:")
+                                    Text("+ ${Formatters.currency(otherRevenues)}", color = SuccessGreen, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("يخصم: المصروفات الإدارية والتشغيلية:")
+                                Text("- ${Formatters.currency(totalOperatingExpenses)}", color = ErrorRed, fontWeight = FontWeight.Bold)
                             }
                             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                            expenseAccounts.forEach { acc ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(acc.nameAr, style = MaterialTheme.typography.bodyMedium)
-                                    Text(Formatters.currency(acc.currentBalance), fontWeight = FontWeight.SemiBold)
-                                }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("صافي أرباح النشاط (Net Profit):", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    Formatters.currency(netProfit),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (netProfit >= 0) EmeraldPrimary else ErrorRed,
+                                    style = MaterialTheme.typography.titleLarge
+                                )
                             }
                         }
                     }
@@ -252,7 +329,7 @@ fun FinancialReportsScreen(
                                         .padding(vertical = 4.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text(acc.nameAr, style = MaterialTheme.typography.bodyMedium)
+                                    Text("${acc.code} - ${acc.nameAr}", style = MaterialTheme.typography.bodyMedium)
                                     Text(Formatters.currency(acc.currentBalance), fontWeight = FontWeight.SemiBold)
                                 }
                             }
@@ -277,7 +354,7 @@ fun FinancialReportsScreen(
                                         .padding(vertical = 4.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text(acc.nameAr, style = MaterialTheme.typography.bodyMedium)
+                                    Text("${acc.code} - ${acc.nameAr}", style = MaterialTheme.typography.bodyMedium)
                                     Text(Formatters.currency(acc.currentBalance), fontWeight = FontWeight.SemiBold)
                                 }
                             }
@@ -302,7 +379,7 @@ fun FinancialReportsScreen(
                                         .padding(vertical = 4.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text(acc.nameAr, style = MaterialTheme.typography.bodyMedium)
+                                    Text("${acc.code} - ${acc.nameAr}", style = MaterialTheme.typography.bodyMedium)
                                     Text(Formatters.currency(acc.currentBalance), fontWeight = FontWeight.SemiBold)
                                 }
                             }
@@ -312,7 +389,7 @@ fun FinancialReportsScreen(
                                     .padding(vertical = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("أرباح الفترة الحالية", style = MaterialTheme.typography.bodyMedium, color = SuccessGreen)
+                                Text("أرباح الفترة الحالية المنقولة", style = MaterialTheme.typography.bodyMedium, color = SuccessGreen)
                                 Text(Formatters.currency(netProfit), fontWeight = FontWeight.SemiBold, color = SuccessGreen)
                             }
                         }

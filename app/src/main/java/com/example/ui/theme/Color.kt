@@ -22,6 +22,8 @@ val PureBlack = Color(0xFF0F172A)
 val SuccessGreen = Color(0xFF10B981)
 val ErrorRed = Color(0xFFEF4444)
 val WarningOrange = Color(0xFFF59E0B)
+val AmberWarning = Color(0xFFD97706)
+val AmberWarningBg = Color(0xFFFEF3C7)
 val InfoBlue = Color(0xFF3B82F6)
 
 val IncomeGreen = Color(0xFF10B981)

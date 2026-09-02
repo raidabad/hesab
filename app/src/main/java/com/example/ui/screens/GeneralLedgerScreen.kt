@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.Account
 import com.example.data.model.JournalEntry
+import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.components.Formatters
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.AccountingViewModel
@@ -36,6 +37,8 @@ fun GeneralLedgerScreen(
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
+    var accountToDelete by remember { mutableStateOf<Account?>(null) }
+    var journalToDelete by remember { mutableStateOf<JournalEntry?>(null) }
 
     val accounts by viewModel.accounts.collectAsState()
     val journalEntries by viewModel.journalEntries.collectAsState()
@@ -167,7 +170,7 @@ fun GeneralLedgerScreen(
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "${acc.type.arabicName} • ${if (acc.isGroup) "حساب تجميعي رئيسي" else "حساب فرعي قابل للحركة"}",
+                                    text = "${acc.type.arabicName} • ${if (acc.isGroup) "حساب رئيسي" else "حساب فرعي قابل للحركة"}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = GrayMedium
                                 )
@@ -189,6 +192,9 @@ fun GeneralLedgerScreen(
                                         IconButton(onClick = { onViewAccountStatement(acc) }) {
                                             Icon(Icons.Default.ReceiptLong, contentDescription = "كشف حساب", modifier = Modifier.size(18.dp), tint = EmeraldPrimary)
                                         }
+                                    }
+                                    IconButton(onClick = { accountToDelete = acc }) {
+                                        Icon(Icons.Default.DeleteOutline, contentDescription = "حذف الحساب", modifier = Modifier.size(18.dp), tint = ErrorRed)
                                     }
                                 }
                             }
@@ -253,22 +259,54 @@ fun GeneralLedgerScreen(
                                 }
                             }
 
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = Formatters.currency(entry.totalDebit),
-                                    fontWeight = FontWeight.Bold,
-                                    color = EmeraldPrimary
-                                )
-                                Text(
-                                    text = "قيد متزن ✓",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = SuccessGreen
-                                )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = Formatters.currency(entry.totalDebit),
+                                        fontWeight = FontWeight.Bold,
+                                        color = EmeraldPrimary
+                                    )
+                                    Text(
+                                        text = "قيد متزن ✓",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = SuccessGreen
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                IconButton(onClick = { journalToDelete = entry }) {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = "حذف القيد", tint = ErrorRed)
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    // Account Delete Confirmation
+    accountToDelete?.let { acc ->
+        ConfirmDeleteDialog(
+            title = "تأكيد حذف الحساب",
+            message = "هل أنت متأكد من رغبتك في حذف الحساب ${acc.code} - ${acc.nameAr}؟ تنبيه: لا يمكن حذف الحسابات التي عليها حركات أو قيود مسجلة.",
+            onDismiss = { accountToDelete = null },
+            onConfirm = {
+                viewModel.deleteAccountSafe(acc)
+                accountToDelete = null
+            }
+        )
+    }
+
+    // Journal Entry Delete Confirmation
+    journalToDelete?.let { entry ->
+        ConfirmDeleteDialog(
+            title = "تأكيد حذف القيد المحاسبي",
+            message = "هل أنت متأكد من حذف القيد ${entry.entryNumber}؟ تنبيه: القيود التلقائية الناتجة عن فواتير أو سندات لا تحذف إلا بحذف أصل الفاتورة أو السند.",
+            onDismiss = { journalToDelete = null },
+            onConfirm = {
+                viewModel.deleteJournalEntrySafe(entry)
+                journalToDelete = null
+            }
+        )
     }
 }

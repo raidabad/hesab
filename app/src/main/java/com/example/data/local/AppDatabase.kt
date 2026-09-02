@@ -19,9 +19,14 @@ import com.example.data.model.*
         SalesInvoice::class,
         SalesInvoiceItem::class,
         PurchaseInvoice::class,
-        PurchaseInvoiceItem::class
+        PurchaseInvoiceItem::class,
+        Voucher::class,
+        SalesReturn::class,
+        SalesReturnItem::class,
+        PurchaseReturn::class,
+        PurchaseReturnItem::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -31,6 +36,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao
     abstract fun partnerDao(): PartnerDao
     abstract fun invoiceDao(): InvoiceDao
+    abstract fun voucherDao(): VoucherDao
+    abstract fun returnDao(): ReturnDao
 
     companion object {
         @Volatile
@@ -51,3 +58,4 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 }
+

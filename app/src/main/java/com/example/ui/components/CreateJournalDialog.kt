@@ -26,6 +26,7 @@ import kotlin.math.abs
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateJournalEntryDialog(
+    initialEntryNumber: String = "1",
     postingAccounts: List<Account>,
     onDismiss: () -> Unit,
     onConfirm: (
@@ -36,7 +37,9 @@ fun CreateJournalEntryDialog(
         lines: List<JournalEntryLine>
     ) -> Unit
 ) {
-    var entryNumber by remember { mutableStateOf("JV-${System.currentTimeMillis() % 100000}") }
+    var entryNumber by remember { mutableStateOf(initialEntryNumber) }
+    var selectedDate by remember { mutableStateOf(System.currentTimeMillis()) }
+    var showDatePicker by remember { mutableStateOf(false) }
     var description by remember { mutableStateOf("") }
     var refNumber by remember { mutableStateOf("") }
 
@@ -51,6 +54,25 @@ fun CreateJournalEntryDialog(
     val totalDebit = lines.sumOf { it.debit }
     val totalCredit = lines.sumOf { it.credit }
     val isBalanced = lines.size >= 2 && abs(totalDebit - totalCredit) < 0.01
+
+    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDate)
+
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { selectedDate = it }
+                    showDatePicker = false
+                }) { Text("تأكيد") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("إلغاء") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -76,7 +98,7 @@ fun CreateJournalEntryDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "إنشاء قيد يومية مزدوج",
+                        text = "إنشاء قيد يومية عام",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -109,6 +131,34 @@ fun CreateJournalEntryDialog(
                                     singleLine = true
                                 )
                             }
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Date selector
+                            OutlinedCard(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showDatePicker = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.CalendarToday, contentDescription = null, tint = EmeraldPrimary)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("تاريخ القيد:", style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                    Text(
+                                        text = Formatters.date(selectedDate),
+                                        fontWeight = FontWeight.Bold,
+                                        color = EmeraldPrimary
+                                    )
+                                }
+                            }
+
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedTextField(
                                 value = description,
@@ -202,7 +252,9 @@ fun CreateJournalEntryDialog(
                                             lineDesc = ""
                                         }
                                     },
-                                    modifier = Modifier.fillMaxWidth().testTag("add_journal_line_btn")
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("add_journal_line_btn")
                                 ) {
                                     Icon(imageVector = Icons.Default.Add, contentDescription = null)
                                     Spacer(modifier = Modifier.width(6.dp))
@@ -282,7 +334,7 @@ fun CreateJournalEntryDialog(
                             if (isBalanced) {
                                 onConfirm(
                                     entryNumber.trim(),
-                                    System.currentTimeMillis(),
+                                    selectedDate,
                                     description.trim(),
                                     refNumber.trim(),
                                     lines.toList()

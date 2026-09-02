@@ -16,7 +16,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.PurchaseInvoice
+import com.example.data.model.PurchaseReturn
 import com.example.data.model.Supplier
+import com.example.ui.components.ConfirmDeleteDialog
 import com.example.ui.components.Formatters
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.AccountingViewModel
@@ -24,20 +26,31 @@ import com.example.ui.viewmodel.AccountingViewModel
 @Composable
 fun PurchasesScreen(
     viewModel: AccountingViewModel,
-    onNewPurchaseClick: () -> Unit,
+    onNewBillClick: () -> Unit,
+    onNewReturnClick: () -> Unit,
     onNewSupplierClick: () -> Unit,
     onEditSupplierClick: (Supplier) -> Unit,
-    onViewPurchaseDetail: (PurchaseInvoice) -> Unit
+    onViewBillDetail: (PurchaseInvoice) -> Unit,
+    onViewReturnDetail: (PurchaseReturn) -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
+    var supplierToDelete by remember { mutableStateOf<Supplier?>(null) }
+    var billToDelete by remember { mutableStateOf<PurchaseInvoice?>(null) }
+    var returnToDelete by remember { mutableStateOf<PurchaseReturn?>(null) }
 
     val purchaseInvoices by viewModel.purchaseInvoices.collectAsState()
+    val purchaseReturns by viewModel.purchaseReturns.collectAsState()
     val suppliers by viewModel.suppliers.collectAsState()
 
-    val filteredInvoices = remember(purchaseInvoices, searchQuery) {
+    val filteredBills = remember(purchaseInvoices, searchQuery) {
         if (searchQuery.isBlank()) purchaseInvoices
         else purchaseInvoices.filter { it.billNumber.contains(searchQuery, ignoreCase = true) || it.supplierName.contains(searchQuery, ignoreCase = true) }
+    }
+
+    val filteredReturns = remember(purchaseReturns, searchQuery) {
+        if (searchQuery.isBlank()) purchaseReturns
+        else purchaseReturns.filter { it.returnNumber.contains(searchQuery, ignoreCase = true) || it.supplierName.contains(searchQuery, ignoreCase = true) }
     }
 
     val filteredSuppliers = remember(suppliers, searchQuery) {
@@ -62,6 +75,11 @@ fun PurchasesScreen(
             Tab(
                 selected = selectedTab == 1,
                 onClick = { selectedTab = 1 },
+                text = { Text("مردود المشتريات (${purchaseReturns.size})") }
+            )
+            Tab(
+                selected = selectedTab == 2,
+                onClick = { selectedTab = 2 },
                 text = { Text("سجل الموردين (${suppliers.size})") }
             )
         }
@@ -77,40 +95,61 @@ fun PurchasesScreen(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text(if (selectedTab == 0) "بحث برقم الفاتورة أو المورد..." else "بحث باسم المورد...") },
+                placeholder = {
+                    Text(
+                        when (selectedTab) {
+                            0 -> "بحث برقم الفاتورة أو المورد..."
+                            1 -> "بحث برقم المردود أو المورد..."
+                            else -> "بحث باسم المورد أو الهاتف..."
+                        }
+                    )
+                },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true
             )
 
-            if (selectedTab == 0) {
-                Button(
-                    onClick = onNewPurchaseClick,
-                    modifier = Modifier.testTag("new_purchase_invoice_btn")
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("فاتورة شراء")
+            when (selectedTab) {
+                0 -> {
+                    Button(
+                        onClick = onNewBillClick,
+                        modifier = Modifier.testTag("new_purchase_invoice_btn")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("فاتورة شراء")
+                    }
                 }
-            } else {
-                Button(
-                    onClick = onNewSupplierClick,
-                    modifier = Modifier.testTag("new_supplier_btn")
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("مورد جديد")
+                1 -> {
+                    Button(
+                        onClick = onNewReturnClick,
+                        colors = ButtonDefaults.buttonColors(containerColor = ErrorRed),
+                        modifier = Modifier.testTag("new_purchase_return_btn")
+                    ) {
+                        Icon(Icons.Default.AssignmentReturn, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("مردود مشتريات")
+                    }
+                }
+                else -> {
+                    Button(
+                        onClick = onNewSupplierClick,
+                        modifier = Modifier.testTag("new_supplier_btn")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("مورد جديد")
+                    }
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // TAB 0: Purchase Invoices
         if (selectedTab == 0) {
-            if (filteredInvoices.isEmpty()) {
+            if (filteredBills.isEmpty()) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
@@ -129,24 +168,18 @@ fun PurchasesScreen(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Text(
-                            text = if (searchQuery.isBlank()) "النظام جاهز ونظيف. انقر على \"فاتورة جديدة\" لتسجيل مشترياتك." else "تأكد من كتابة رقم الفاتورة أو اسم المورد بشكل صحيح",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                        )
                     }
                 }
             } else {
-                // Purchase Invoices List
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(filteredInvoices, key = { it.id }) { bill ->
+                    items(filteredBills, key = { it.id }) { bill ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onViewPurchaseDetail(bill) },
+                                .clickable { onViewBillDetail(bill) },
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -159,52 +192,136 @@ fun PurchasesScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Surface(
-                                            color = EmeraldPrimary.copy(alpha = 0.15f),
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
+                                        Text(
+                                            text = "فاتورة: ${bill.billNumber}",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (bill.supplierInvoiceRef.isNotBlank()) {
+                                            Spacer(modifier = Modifier.width(6.dp))
                                             Text(
-                                                text = bill.billNumber,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                color = EmeraldPrimary,
+                                                text = "(مرجع: ${bill.supplierInvoiceRef})",
                                                 style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = Formatters.date(bill.date),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = GrayMedium
-                                        )
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = bill.supplierName,
-                                        fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.bodyLarge
+                                        text = "المورد: ${bill.supplierName}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
                                     )
-                                    if (bill.supplierInvoiceRef.isNotBlank()) {
-                                        Text(
-                                            text = "مرجع المورد: ${bill.supplierInvoiceRef}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = GrayMedium
-                                        )
-                                    }
+                                    Text(
+                                        text = "التاريخ: ${Formatters.date(bill.date)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
 
-                                Column(horizontalAlignment = Alignment.End) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = Formatters.currency(bill.totalAmount),
+                                        style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = EmeraldPrimary,
-                                        style = MaterialTheme.typography.titleMedium
+                                        color = EmeraldPrimary
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    IconButton(onClick = { billToDelete = bill }) {
+                                        Icon(Icons.Default.DeleteOutline, contentDescription = "حذف الفاتورة", tint = ErrorRed)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (selectedTab == 1) {
+            // TAB 1: Purchase Returns
+            if (filteredReturns.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AssignmentReturn,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Text(
+                            text = if (searchQuery.isBlank()) "لا توجد فواتير مردود مشتريات" else "لا توجد نتائج للبحث",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredReturns, key = { it.id }) { ret ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onViewReturnDetail(ret) },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "مردود: ${ret.returnNumber}",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ErrorRed
+                                        )
+                                        if (ret.originalBillNumber.isNotBlank()) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "(أصل: ${ret.originalBillNumber})",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "المورد: ${ret.supplierName}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
-                                        text = "طريقة السداد: ${bill.paymentType.arabicName}",
+                                        text = "التاريخ: ${Formatters.date(ret.date)}",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = GrayMedium
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = Formatters.currency(ret.totalAmount),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ErrorRed
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    IconButton(onClick = { returnToDelete = ret }) {
+                                        Icon(Icons.Default.DeleteOutline, contentDescription = "حذف المردود", tint = ErrorRed)
+                                    }
                                 }
                             }
                         }
@@ -212,42 +329,72 @@ fun PurchasesScreen(
                 }
             }
         } else {
-            // Suppliers List
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(filteredSuppliers, key = { it.id }) { sup ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Row(
+            // TAB 2: Suppliers
+            if (filteredSuppliers.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (searchQuery.isBlank()) "لا يوجد موردون مسجلون حالياً" else "لم يتم العثور على موردين",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredSuppliers, key = { it.id }) { supplier ->
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .clickable { onEditSupplierClick(supplier) },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(sup.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                                if (sup.phone.isNotBlank()) {
-                                    Text("الهاتف: ${sup.phone}", style = MaterialTheme.typography.bodySmall, color = GrayMedium)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = supplier.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    if (supplier.phone.isNotBlank()) {
+                                        Text(
+                                            text = "الهاتف: ${supplier.phone}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
-                                if (sup.taxNumber.isNotBlank()) {
-                                    Text("الرقم الضريبي: ${sup.taxNumber}", style = MaterialTheme.typography.labelSmall, color = GrayMedium)
-                                }
-                            }
 
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = "المستحق: ${Formatters.currency(sup.currentBalance)}",
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (sup.currentBalance > 0) ErrorRed else EmeraldPrimary
-                                )
-                                IconButton(onClick = { onEditSupplierClick(sup) }) {
-                                    Icon(Icons.Default.Edit, contentDescription = "تعديل", modifier = Modifier.size(18.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = "مستحق للمورد:",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = Formatters.currency(supplier.currentBalance),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (supplier.currentBalance > 0) ErrorRed else IncomeGreen
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    IconButton(onClick = { supplierToDelete = supplier }) {
+                                        Icon(Icons.Default.DeleteOutline, contentDescription = "حذف المورد", tint = ErrorRed)
+                                    }
                                 }
                             }
                         }
@@ -255,5 +402,44 @@ fun PurchasesScreen(
                 }
             }
         }
+    }
+
+    // Bill Delete Confirmation
+    billToDelete?.let { bill ->
+        ConfirmDeleteDialog(
+            title = "تأكيد حذف فاتورة المشتريات",
+            message = "هل أنت متأكد من رغبتك في حذف فاتورة المشتريات رقم ${bill.billNumber}؟ سيتم خصم الكميات من المخزن وإلغاء القيد المحاسبي وتعديل رصيد المورد.",
+            onDismiss = { billToDelete = null },
+            onConfirm = {
+                viewModel.deletePurchaseInvoice(bill)
+                billToDelete = null
+            }
+        )
+    }
+
+    // Return Delete Confirmation
+    returnToDelete?.let { ret ->
+        ConfirmDeleteDialog(
+            title = "تأكيد حذف مردود المشتريات",
+            message = "هل أنت متأكد من حذف مردود المشتريات ${ret.returnNumber}؟",
+            onDismiss = { returnToDelete = null },
+            onConfirm = {
+                viewModel.deletePurchaseReturn(ret)
+                returnToDelete = null
+            }
+        )
+    }
+
+    // Supplier Delete Confirmation
+    supplierToDelete?.let { supp ->
+        ConfirmDeleteDialog(
+            title = "تأكيد حذف المورد",
+            message = "هل أنت متأكد من حذف المورد \"${supp.name}\"؟ تنبيه: لن يتم الحذف إذا كانت هناك فواتير أو سندات أو أرصدة مرتبطة به.",
+            onDismiss = { supplierToDelete = null },
+            onConfirm = {
+                viewModel.deleteSupplierSafe(supp)
+                supplierToDelete = null
+            }
+        )
     }
 }
