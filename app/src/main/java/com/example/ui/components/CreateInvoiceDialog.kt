@@ -26,7 +26,7 @@ import com.example.data.model.*
 import com.example.ui.theme.*
 
 // -------------------------------------------------------------
-// 1. Create Sales Invoice Dialog
+// 1. Create / Edit Sales Invoice Dialog
 // -------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,6 +36,8 @@ fun CreateSalesInvoiceDialog(
     defaultTaxRate: Double,
     customers: List<Customer>,
     availableProducts: List<Product>,
+    existingInvoice: SalesInvoice? = null,
+    existingItems: List<SalesInvoiceItem> = emptyList(),
     onDismiss: () -> Unit,
     onConfirm: (
         invoiceNumber: String,
@@ -50,21 +52,39 @@ fun CreateSalesInvoiceDialog(
         notes: String
     ) -> Unit
 ) {
-    var invoiceNumber by remember { mutableStateOf(initialInvoiceNumber) }
-    var operationDate by remember { mutableStateOf(System.currentTimeMillis()) }
-    var selectedCustomer by remember { mutableStateOf<Customer?>(customers.firstOrNull()) }
-    var customerNameInput by remember { mutableStateOf(customers.firstOrNull()?.name ?: "عميل نقدي عام") }
-    var paymentType by remember { mutableStateOf(PaymentType.CASH) }
-    var discountText by remember { mutableStateOf("0.0") }
+    val isEditing = existingInvoice != null
+    var invoiceNumber by remember { mutableStateOf(existingInvoice?.invoiceNumber ?: initialInvoiceNumber) }
+    var operationDate by remember { mutableStateOf(existingInvoice?.date ?: System.currentTimeMillis()) }
+    var selectedCustomer by remember {
+        mutableStateOf<Customer?>(
+            if (existingInvoice?.customerId != null) customers.find { it.id == existingInvoice.customerId }
+            else customers.firstOrNull()
+        )
+    }
+    var customerNameInput by remember {
+        mutableStateOf(existingInvoice?.customerName ?: (customers.firstOrNull()?.name ?: "عميل نقدي عام"))
+    }
+    var paymentType by remember { mutableStateOf(existingInvoice?.paymentType ?: PaymentType.CASH) }
+    var discountText by remember { mutableStateOf((existingInvoice?.discount ?: 0.0).toString()) }
 
-    var enableTaxInThisInvoice by remember { mutableStateOf(isTaxActive) }
-    var taxRateText by remember { mutableStateOf(if (isTaxActive) defaultTaxRate.toString() else "0.0") }
-    var overrideTaxAmountText by remember { mutableStateOf("") }
+    var enableTaxInThisInvoice by remember {
+        mutableStateOf(if (existingInvoice != null) existingInvoice.taxAmount > 0 || existingInvoice.taxRate > 0 else isTaxActive)
+    }
+    var taxRateText by remember {
+        mutableStateOf(if (existingInvoice != null) existingInvoice.taxRate.toString() else if (isTaxActive) defaultTaxRate.toString() else "0.0")
+    }
+    var overrideTaxAmountText by remember {
+        mutableStateOf(if (existingInvoice != null && existingInvoice.taxAmount > 0) existingInvoice.taxAmount.toString() else "")
+    }
 
-    var notes by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf(existingInvoice?.notes ?: "") }
 
     // Invoice items state
-    val invoiceItems = remember { mutableStateListOf<SalesInvoiceItem>() }
+    val invoiceItems = remember {
+        mutableStateListOf<SalesInvoiceItem>().apply {
+            if (existingItems.isNotEmpty()) addAll(existingItems)
+        }
+    }
 
     // Item adding state
     var selectedProductForAdd by remember { mutableStateOf<Product?>(availableProducts.firstOrNull()) }
@@ -109,7 +129,7 @@ fun CreateSalesInvoiceDialog(
                         Icon(Icons.Default.PointOfSale, contentDescription = null, tint = EmeraldPrimary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "إصدار فاتورة مبيعات جديدة",
+                            text = if (isEditing) "تعديل فاتورة مبيعات (${existingInvoice!!.invoiceNumber})" else "إصدار فاتورة مبيعات جديدة",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -420,7 +440,7 @@ fun CreateSalesInvoiceDialog(
                     ) {
                         Icon(Icons.Default.Check, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("إصدار الفاتورة (${Formatters.currency(totalAmount)})")
+                        Text(if (isEditing) "حفظ التعديلات (${Formatters.currency(totalAmount)})" else "إصدار الفاتورة (${Formatters.currency(totalAmount)})")
                     }
                 }
             }
@@ -429,7 +449,7 @@ fun CreateSalesInvoiceDialog(
 }
 
 // -------------------------------------------------------------
-// 2. Create Purchase Invoice Dialog
+// 2. Create / Edit Purchase Invoice Dialog
 // -------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -439,6 +459,8 @@ fun CreatePurchaseInvoiceDialog(
     defaultTaxRate: Double,
     suppliers: List<Supplier>,
     availableProducts: List<Product>,
+    existingInvoice: PurchaseInvoice? = null,
+    existingItems: List<PurchaseInvoiceItem> = emptyList(),
     onDismiss: () -> Unit,
     onConfirm: (
         billNumber: String,
@@ -454,21 +476,39 @@ fun CreatePurchaseInvoiceDialog(
         notes: String
     ) -> Unit
 ) {
-    var billNumber by remember { mutableStateOf(initialBillNumber) }
-    var operationDate by remember { mutableStateOf(System.currentTimeMillis()) }
-    var supplierInvoiceRef by remember { mutableStateOf("") }
-    var selectedSupplier by remember { mutableStateOf<Supplier?>(suppliers.firstOrNull()) }
-    var supplierNameInput by remember { mutableStateOf(suppliers.firstOrNull()?.name ?: "مورد عام") }
-    var paymentType by remember { mutableStateOf(PaymentType.CASH) }
-    var discountText by remember { mutableStateOf("0.0") }
+    val isEditing = existingInvoice != null
+    var billNumber by remember { mutableStateOf(existingInvoice?.billNumber ?: initialBillNumber) }
+    var operationDate by remember { mutableStateOf(existingInvoice?.date ?: System.currentTimeMillis()) }
+    var supplierInvoiceRef by remember { mutableStateOf(existingInvoice?.supplierInvoiceRef ?: "") }
+    var selectedSupplier by remember {
+        mutableStateOf<Supplier?>(
+            if (existingInvoice?.supplierId != null) suppliers.find { it.id == existingInvoice.supplierId }
+            else suppliers.firstOrNull()
+        )
+    }
+    var supplierNameInput by remember {
+        mutableStateOf(existingInvoice?.supplierName ?: (suppliers.firstOrNull()?.name ?: "مورد عام"))
+    }
+    var paymentType by remember { mutableStateOf(existingInvoice?.paymentType ?: PaymentType.CASH) }
+    var discountText by remember { mutableStateOf((existingInvoice?.discount ?: 0.0).toString()) }
 
-    var enableTaxInThisBill by remember { mutableStateOf(isTaxActive) }
-    var taxRateText by remember { mutableStateOf(if (isTaxActive) defaultTaxRate.toString() else "0.0") }
-    var overrideTaxAmountText by remember { mutableStateOf("") }
+    var enableTaxInThisBill by remember {
+        mutableStateOf(if (existingInvoice != null) existingInvoice.taxAmount > 0 || existingInvoice.taxRate > 0 else isTaxActive)
+    }
+    var taxRateText by remember {
+        mutableStateOf(if (existingInvoice != null) existingInvoice.taxRate.toString() else if (isTaxActive) defaultTaxRate.toString() else "0.0")
+    }
+    var overrideTaxAmountText by remember {
+        mutableStateOf(if (existingInvoice != null && existingInvoice.taxAmount > 0) existingInvoice.taxAmount.toString() else "")
+    }
 
-    var notes by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf(existingInvoice?.notes ?: "") }
 
-    val billItems = remember { mutableStateListOf<PurchaseInvoiceItem>() }
+    val billItems = remember {
+        mutableStateListOf<PurchaseInvoiceItem>().apply {
+            if (existingItems.isNotEmpty()) addAll(existingItems)
+        }
+    }
 
     var selectedProductForAdd by remember { mutableStateOf<Product?>(availableProducts.firstOrNull()) }
     var addQtyText by remember { mutableStateOf("1.0") }
@@ -512,7 +552,7 @@ fun CreatePurchaseInvoiceDialog(
                         Icon(Icons.Default.ShoppingBag, contentDescription = null, tint = EmeraldPrimary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "تسجيل فاتورة مشتريات وتوريد مخزن",
+                            text = if (isEditing) "تعديل فاتورة مشتريات (${existingInvoice!!.billNumber})" else "تسجيل فاتورة مشتريات وتوريد مخزن",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -831,7 +871,7 @@ fun CreatePurchaseInvoiceDialog(
                     ) {
                         Icon(Icons.Default.Check, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("حفظ وتوريد المخزن (${Formatters.currency(totalAmount)})")
+                        Text(if (isEditing) "حفظ تعديل الفاتورة (${Formatters.currency(totalAmount)})" else "حفظ وتوريد المخزن (${Formatters.currency(totalAmount)})")
                     }
                 }
             }
@@ -840,7 +880,7 @@ fun CreatePurchaseInvoiceDialog(
 }
 
 // -------------------------------------------------------------
-// 3. Create Sales Return Dialog (مردود مبيعات)
+// 3. Create / Edit Sales Return Dialog (مردود مبيعات)
 // -------------------------------------------------------------
 @Composable
 fun CreateSalesReturnDialog(
@@ -849,6 +889,8 @@ fun CreateSalesReturnDialog(
     defaultTaxRate: Double,
     customers: List<Customer>,
     availableProducts: List<Product>,
+    existingReturn: SalesReturn? = null,
+    existingItems: List<SalesReturnItem> = emptyList(),
     onDismiss: () -> Unit,
     onConfirm: (
         returnNumber: String,
@@ -863,19 +905,37 @@ fun CreateSalesReturnDialog(
         notes: String
     ) -> Unit
 ) {
-    var returnNumber by remember { mutableStateOf(initialReturnNumber) }
-    var originalInvoiceNumber by remember { mutableStateOf("") }
-    var operationDate by remember { mutableStateOf(System.currentTimeMillis()) }
-    var selectedCustomer by remember { mutableStateOf<Customer?>(customers.firstOrNull()) }
-    var customerNameInput by remember { mutableStateOf(customers.firstOrNull()?.name ?: "عميل نقدي عام") }
-    var paymentType by remember { mutableStateOf(PaymentType.CASH) }
+    val isEditing = existingReturn != null
+    var returnNumber by remember { mutableStateOf(existingReturn?.returnNumber ?: initialReturnNumber) }
+    var originalInvoiceNumber by remember { mutableStateOf(existingReturn?.originalInvoiceNumber ?: "") }
+    var operationDate by remember { mutableStateOf(existingReturn?.date ?: System.currentTimeMillis()) }
+    var selectedCustomer by remember {
+        mutableStateOf<Customer?>(
+            if (existingReturn?.customerId != null) customers.find { it.id == existingReturn.customerId }
+            else customers.firstOrNull()
+        )
+    }
+    var customerNameInput by remember {
+        mutableStateOf(existingReturn?.customerName ?: (customers.firstOrNull()?.name ?: "عميل نقدي عام"))
+    }
+    var paymentType by remember { mutableStateOf(existingReturn?.paymentType ?: PaymentType.CASH) }
 
-    var enableTax by remember { mutableStateOf(isTaxActive) }
-    var taxRateText by remember { mutableStateOf(if (isTaxActive) defaultTaxRate.toString() else "0.0") }
-    var overrideTaxAmountText by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
+    var enableTax by remember {
+        mutableStateOf(if (existingReturn != null) existingReturn.taxAmount > 0 || existingReturn.taxRate > 0 else isTaxActive)
+    }
+    var taxRateText by remember {
+        mutableStateOf(if (existingReturn != null) existingReturn.taxRate.toString() else if (isTaxActive) defaultTaxRate.toString() else "0.0")
+    }
+    var overrideTaxAmountText by remember {
+        mutableStateOf(if (existingReturn != null && existingReturn.taxAmount > 0) existingReturn.taxAmount.toString() else "")
+    }
+    var notes by remember { mutableStateOf(existingReturn?.notes ?: "") }
 
-    val returnItems = remember { mutableStateListOf<SalesReturnItem>() }
+    val returnItems = remember {
+        mutableStateListOf<SalesReturnItem>().apply {
+            if (existingItems.isNotEmpty()) addAll(existingItems)
+        }
+    }
 
     var selectedProductForAdd by remember { mutableStateOf<Product?>(availableProducts.firstOrNull()) }
     var addQtyText by remember { mutableStateOf("1.0") }
@@ -916,7 +976,7 @@ fun CreateSalesReturnDialog(
                         Icon(Icons.Default.AssignmentReturn, contentDescription = null, tint = ErrorRed)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "إصدار فاتورة مردود مبيعات (مرتجع)",
+                            text = if (isEditing) "تعديل مردود مبيعات (${existingReturn!!.returnNumber})" else "إصدار فاتورة مردود مبيعات (مرتجع)",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = ErrorRed
@@ -1191,7 +1251,7 @@ fun CreateSalesReturnDialog(
                     ) {
                         Icon(Icons.Default.Check, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("إصدار المردود (${Formatters.currency(totalAmount)})")
+                        Text(if (isEditing) "حفظ تعديل المردود (${Formatters.currency(totalAmount)})" else "إصدار المردود (${Formatters.currency(totalAmount)})")
                     }
                 }
             }
@@ -1200,7 +1260,7 @@ fun CreateSalesReturnDialog(
 }
 
 // -------------------------------------------------------------
-// 4. Create Purchase Return Dialog (مردود مشتريات)
+// 4. Create / Edit Purchase Return Dialog (مردود مشتريات)
 // -------------------------------------------------------------
 @Composable
 fun CreatePurchaseReturnDialog(
@@ -1209,6 +1269,8 @@ fun CreatePurchaseReturnDialog(
     defaultTaxRate: Double,
     suppliers: List<Supplier>,
     availableProducts: List<Product>,
+    existingReturn: PurchaseReturn? = null,
+    existingItems: List<PurchaseReturnItem> = emptyList(),
     onDismiss: () -> Unit,
     onConfirm: (
         returnNumber: String,
@@ -1223,19 +1285,37 @@ fun CreatePurchaseReturnDialog(
         notes: String
     ) -> Unit
 ) {
-    var returnNumber by remember { mutableStateOf(initialReturnNumber) }
-    var originalBillNumber by remember { mutableStateOf("") }
-    var operationDate by remember { mutableStateOf(System.currentTimeMillis()) }
-    var selectedSupplier by remember { mutableStateOf<Supplier?>(suppliers.firstOrNull()) }
-    var supplierNameInput by remember { mutableStateOf(suppliers.firstOrNull()?.name ?: "مورد عام") }
-    var paymentType by remember { mutableStateOf(PaymentType.CASH) }
+    val isEditing = existingReturn != null
+    var returnNumber by remember { mutableStateOf(existingReturn?.returnNumber ?: initialReturnNumber) }
+    var originalBillNumber by remember { mutableStateOf(existingReturn?.originalBillNumber ?: "") }
+    var operationDate by remember { mutableStateOf(existingReturn?.date ?: System.currentTimeMillis()) }
+    var selectedSupplier by remember {
+        mutableStateOf<Supplier?>(
+            if (existingReturn?.supplierId != null) suppliers.find { it.id == existingReturn.supplierId }
+            else suppliers.firstOrNull()
+        )
+    }
+    var supplierNameInput by remember {
+        mutableStateOf(existingReturn?.supplierName ?: (suppliers.firstOrNull()?.name ?: "مورد عام"))
+    }
+    var paymentType by remember { mutableStateOf(existingReturn?.paymentType ?: PaymentType.CASH) }
 
-    var enableTax by remember { mutableStateOf(isTaxActive) }
-    var taxRateText by remember { mutableStateOf(if (isTaxActive) defaultTaxRate.toString() else "0.0") }
-    var overrideTaxAmountText by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
+    var enableTax by remember {
+        mutableStateOf(if (existingReturn != null) existingReturn.taxAmount > 0 || existingReturn.taxRate > 0 else isTaxActive)
+    }
+    var taxRateText by remember {
+        mutableStateOf(if (existingReturn != null) existingReturn.taxRate.toString() else if (isTaxActive) defaultTaxRate.toString() else "0.0")
+    }
+    var overrideTaxAmountText by remember {
+        mutableStateOf(if (existingReturn != null && existingReturn.taxAmount > 0) existingReturn.taxAmount.toString() else "")
+    }
+    var notes by remember { mutableStateOf(existingReturn?.notes ?: "") }
 
-    val returnItems = remember { mutableStateListOf<PurchaseReturnItem>() }
+    val returnItems = remember {
+        mutableStateListOf<PurchaseReturnItem>().apply {
+            if (existingItems.isNotEmpty()) addAll(existingItems)
+        }
+    }
 
     var selectedProductForAdd by remember { mutableStateOf<Product?>(availableProducts.firstOrNull()) }
     var addQtyText by remember { mutableStateOf("1.0") }
@@ -1276,7 +1356,7 @@ fun CreatePurchaseReturnDialog(
                         Icon(Icons.Default.AssignmentReturn, contentDescription = null, tint = ErrorRed)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "إصدار فاتورة مردود مشتريات (إرجاع للمورد)",
+                            text = if (isEditing) "تعديل مردود مشتريات (${existingReturn!!.returnNumber})" else "إصدار فاتورة مردود مشتريات (إرجاع للمورد)",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = ErrorRed
@@ -1551,7 +1631,7 @@ fun CreatePurchaseReturnDialog(
                     ) {
                         Icon(Icons.Default.Check, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("إصدار المردود (${Formatters.currency(totalAmount)})")
+                        Text(if (isEditing) "حفظ تعديل المردود (${Formatters.currency(totalAmount)})" else "إصدار المردود (${Formatters.currency(totalAmount)})")
                     }
                 }
             }

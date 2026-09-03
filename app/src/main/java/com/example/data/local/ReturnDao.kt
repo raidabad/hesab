@@ -26,7 +26,19 @@ interface ReturnDao {
     suspend fun insertSalesReturn(returnRecord: SalesReturn): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSalesReturns(returns: List<SalesReturn>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSalesReturnItems(items: List<SalesReturnItem>)
+
+    @Query("SELECT * FROM sales_returns")
+    suspend fun getAllSalesReturnsList(): List<SalesReturn>
+
+    @Query("SELECT * FROM sales_return_items")
+    suspend fun getAllSalesReturnItemsList(): List<SalesReturnItem>
+
+    @Query("UPDATE sales_return_items SET unitCost = :unitCost WHERE id = :itemId")
+    suspend fun updateSalesReturnItemCost(itemId: Long, unitCost: Double)
 
     @Update
     suspend fun updateSalesReturn(returnRecord: SalesReturn)
@@ -54,7 +66,16 @@ interface ReturnDao {
     suspend fun insertPurchaseReturn(returnRecord: PurchaseReturn): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPurchaseReturns(returns: List<PurchaseReturn>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPurchaseReturnItems(items: List<PurchaseReturnItem>)
+
+    @Query("SELECT * FROM purchase_returns")
+    suspend fun getAllPurchaseReturnsList(): List<PurchaseReturn>
+
+    @Query("SELECT * FROM purchase_return_items")
+    suspend fun getAllPurchaseReturnItemsList(): List<PurchaseReturnItem>
 
     @Update
     suspend fun updatePurchaseReturn(returnRecord: PurchaseReturn)

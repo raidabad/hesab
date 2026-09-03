@@ -17,7 +17,16 @@ interface JournalDao {
     suspend fun insertEntry(entry: JournalEntry): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertEntries(entries: List<JournalEntry>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLines(lines: List<JournalEntryLine>)
+
+    @Query("SELECT * FROM journal_entries")
+    suspend fun getAllEntriesList(): List<JournalEntry>
+
+    @Query("SELECT * FROM journal_entry_lines")
+    suspend fun getAllLinesList(): List<JournalEntryLine>
 
     @Query("SELECT * FROM journal_entry_lines WHERE entryId = :entryId")
     suspend fun getLinesForEntry(entryId: Long): List<JournalEntryLine>

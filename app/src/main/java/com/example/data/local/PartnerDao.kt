@@ -11,6 +11,9 @@ interface PartnerDao {
     @Query("SELECT * FROM customers WHERE isActive = 1 ORDER BY name ASC")
     fun getAllCustomers(): Flow<List<Customer>>
 
+    @Query("SELECT * FROM customers")
+    suspend fun getAllCustomersList(): List<Customer>
+
     @Query("SELECT * FROM customers WHERE id = :id")
     suspend fun getCustomerById(id: Long): Customer?
 
@@ -35,6 +38,9 @@ interface PartnerDao {
     // Suppliers
     @Query("SELECT * FROM suppliers WHERE isActive = 1 ORDER BY name ASC")
     fun getAllSuppliers(): Flow<List<Supplier>>
+
+    @Query("SELECT * FROM suppliers")
+    suspend fun getAllSuppliersList(): List<Supplier>
 
     @Query("SELECT * FROM suppliers WHERE id = :id")
     suspend fun getSupplierById(id: Long): Supplier?

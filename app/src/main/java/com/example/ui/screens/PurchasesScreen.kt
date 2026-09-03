@@ -31,7 +31,9 @@ fun PurchasesScreen(
     onNewSupplierClick: () -> Unit,
     onEditSupplierClick: (Supplier) -> Unit,
     onViewBillDetail: (PurchaseInvoice) -> Unit,
-    onViewReturnDetail: (PurchaseReturn) -> Unit
+    onViewReturnDetail: (PurchaseReturn) -> Unit,
+    onEditBillClick: ((PurchaseInvoice) -> Unit)? = null,
+    onEditReturnClick: ((PurchaseReturn) -> Unit)? = null
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
@@ -227,6 +229,11 @@ fun PurchasesScreen(
                                         color = EmeraldPrimary
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
+                                    if (onEditBillClick != null) {
+                                        IconButton(onClick = { onEditBillClick(bill) }) {
+                                            Icon(Icons.Default.Edit, contentDescription = "تعديل الفاتورة", tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
                                     IconButton(onClick = { billToDelete = bill }) {
                                         Icon(Icons.Default.DeleteOutline, contentDescription = "حذف الفاتورة", tint = ErrorRed)
                                     }
@@ -319,6 +326,11 @@ fun PurchasesScreen(
                                         color = ErrorRed
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
+                                    if (onEditReturnClick != null) {
+                                        IconButton(onClick = { onEditReturnClick(ret) }) {
+                                            Icon(Icons.Default.Edit, contentDescription = "تعديل المردود", tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
                                     IconButton(onClick = { returnToDelete = ret }) {
                                         Icon(Icons.Default.DeleteOutline, contentDescription = "حذف المردود", tint = ErrorRed)
                                     }

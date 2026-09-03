@@ -40,13 +40,27 @@ object Formatters {
     private val dateTimeFormat = SimpleDateFormat("yyyy/MM/dd hh:mm a", Locale.getDefault())
 
     var currencySymbol: String = "ر.س"
+    var showDecimals: Boolean = false
 
     fun currency(amount: Double, symbol: String = currencySymbol): String {
-        return "${decimalFormat.format(amount)} $symbol"
+        val formatted = if (showDecimals) decimalFormat.format(amount) else integerFormat.format(Math.round(amount))
+        return "$formatted $symbol"
     }
 
     fun number(amount: Double): String {
-        return if (amount % 1.0 == 0.0) integerFormat.format(amount) else decimalFormat.format(amount)
+        return if (!showDecimals) {
+            integerFormat.format(Math.round(amount))
+        } else {
+            if (amount % 1.0 == 0.0) integerFormat.format(amount) else decimalFormat.format(amount)
+        }
+    }
+
+    fun quantity(amount: Double): String {
+        return if (!showDecimals) {
+            integerFormat.format(Math.round(amount))
+        } else {
+            if (amount % 1.0 == 0.0) integerFormat.format(amount) else decimalFormat.format(amount)
+        }
     }
 
     fun date(timestamp: Long): String {

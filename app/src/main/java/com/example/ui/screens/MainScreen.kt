@@ -45,6 +45,8 @@ fun MainScreen(viewModel: AccountingViewModel = viewModel()) {
     val currencySymbol by viewModel.currencySymbol.collectAsState()
     val isTaxEnabled by viewModel.isTaxEnabled.collectAsState()
     val defaultTaxRate by viewModel.defaultTaxRate.collectAsState()
+    val showDecimals by viewModel.showDecimals.collectAsState()
+    val defaultMinStock by viewModel.defaultMinStock.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -734,7 +736,7 @@ fun MainScreen(viewModel: AccountingViewModel = viewModel()) {
             )
         }
 
-        // 18. System Settings, Tax, Currency, and Data Reset Dialog
+        // 18. System Settings, Tax, Currency, Decimals, Backup, and Data Reset Dialog
         if (showSettingsDialog) {
             SettingsDialog(
                 currentStoreName = storeName,
@@ -742,9 +744,11 @@ fun MainScreen(viewModel: AccountingViewModel = viewModel()) {
                 currentCurrencySymbol = currencySymbol,
                 isTaxActive = isTaxEnabled,
                 currentTaxRate = defaultTaxRate,
+                currentShowDecimals = showDecimals,
+                currentMinStock = defaultMinStock,
                 onDismiss = { showSettingsDialog = false },
-                onSave = { name, phone, currency, taxActive, taxRate ->
-                    viewModel.updateStoreSettings(name, phone, currency, taxActive, taxRate)
+                onSave = { name, phone, currency, taxActive, taxRate, showDec, minStock ->
+                    viewModel.updateStoreSettings(name, phone, currency, taxActive, taxRate, showDec, minStock)
                     showSettingsDialog = false
                 },
                 onClearTransactions = {
@@ -752,6 +756,18 @@ fun MainScreen(viewModel: AccountingViewModel = viewModel()) {
                 },
                 onResetAllData = {
                     viewModel.resetSystemCompletely()
+                },
+                onExportBackup = {
+                    viewModel.exportBackup()
+                },
+                onRestoreBackup = { json, onSuccess ->
+                    viewModel.restoreBackup(json, onSuccess)
+                },
+                onRepairCOGS = {
+                    viewModel.repairCOGS()
+                },
+                onApplyMinStockToAll = { newMin ->
+                    viewModel.applyMinStockToAllProducts(newMin)
                 }
             )
         }

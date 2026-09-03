@@ -251,15 +251,10 @@ class AccountingRepository(
         journalDao.getLinesForEntry(entryId)
     }
 
-    suspend fun deleteJournalEntrySafe(entry: JournalEntry): Result<Unit> = withContext(Dispatchers.IO) {
-        if (entry.source != "MANUAL") {
-            return@withContext Result.failure(
-                IllegalStateException("لا يمكن حذف هذا القيد مباشرة لأنه قيد آلي تم إنشاؤه من ${entry.source} برقم مرجعي (${entry.referenceNumber}). يرجى حذف العملية الأصلية.")
-            )
-        }
-
-        // Reverse balances
-        val lines = journalDao.getLinesForEntry(entry.id)
+    private suspend fun reverseAndDeleteJournalEntry(entryId: Long?) {
+        if (entryId == null) return
+        val jEntry = journalDao.getEntryById(entryId) ?: return
+        val lines = journalDao.getLinesForEntry(jEntry.id)
         for (line in lines) {
             val acc = accountDao.getAccountById(line.accountId)
             if (acc != null) {
@@ -271,9 +266,18 @@ class AccountingRepository(
                 accountDao.updateBalance(acc.id, newBalance)
             }
         }
+        journalDao.deleteLinesForEntry(jEntry.id)
+        journalDao.deleteEntry(jEntry)
+    }
 
-        journalDao.deleteLinesForEntry(entry.id)
-        journalDao.deleteEntry(entry)
+    suspend fun deleteJournalEntrySafe(entry: JournalEntry): Result<Unit> = withContext(Dispatchers.IO) {
+        if (entry.source != "MANUAL") {
+            return@withContext Result.failure(
+                IllegalStateException("لا يمكن حذف هذا القيد مباشرة لأنه قيد آلي تم إنشاؤه من ${entry.source} برقم مرجعي (${entry.referenceNumber}). يرجى حذف أو تعديل العملية الأصلية.")
+            )
+        }
+
+        reverseAndDeleteJournalEntry(entry.id)
         Result.success(Unit)
     }
 
@@ -304,7 +308,21 @@ class AccountingRepository(
         val paidAmount = if (paymentType == PaymentType.CREDIT) 0.0 else totalAmount
         val remainingAmount = totalAmount - paidAmount
 
-        // 1. Create Automated Accounting Journal Entry for the Sale
+        // 1. Prepare items with accurate unit cost
+        val preparedItems = items.map { item ->
+            val prod = productDao.getProductById(item.productId)
+            var cost = if (item.unitCost > 0) item.unitCost else (prod?.purchasePrice ?: 0.0)
+            if (cost <= 0.0) {
+                val lastPurch = productDao.getLastPurchasePrice(item.productId)
+                if (lastPurch != null && lastPurch > 0.0) {
+                    cost = lastPurch
+                }
+            }
+            item.copy(unitCost = cost)
+        }
+        val totalCost = preparedItems.sumOf { it.quantity * it.unitCost }
+
+        // 2. Create Automated Accounting Journal Entry for the Sale
         val cashAccount = if (paymentType == PaymentType.BANK) {
             accountDao.getAccountByCode("112") ?: accountDao.getAccountByCode("111")
         } else {
@@ -313,6 +331,8 @@ class AccountingRepository(
         val receivablesAccount = accountDao.getAccountByCode("113")
         val salesRevenueAccount = accountDao.getAccountByCode("41")
         val taxLiabilityAccount = accountDao.getAccountByCode("212")
+        val cogsAccount = accountDao.getAccountByCode("51")
+        val inventoryAccount = accountDao.getAccountByCode("114")
 
         val journalLines = mutableListOf<JournalEntryLine>()
 
@@ -374,6 +394,30 @@ class AccountingRepository(
             }
         }
 
+        // COGS and Inventory lines
+        if (totalCost > 0 && cogsAccount != null && inventoryAccount != null) {
+            journalLines.add(
+                JournalEntryLine(
+                    accountId = cogsAccount.id,
+                    accountCode = cogsAccount.code,
+                    accountName = cogsAccount.nameAr,
+                    debit = totalCost,
+                    credit = 0.0,
+                    description = "تكلفة مبيعات فاتورة $invoiceNumber"
+                )
+            )
+            journalLines.add(
+                JournalEntryLine(
+                    accountId = inventoryAccount.id,
+                    accountCode = inventoryAccount.code,
+                    accountName = inventoryAccount.nameAr,
+                    debit = 0.0,
+                    credit = totalCost,
+                    description = "صرف بضاعة من المخزون فاتورة $invoiceNumber"
+                )
+            )
+        }
+
         var journalId: Long? = null
         if (journalLines.size >= 2) {
             val jResult = createJournalEntry(
@@ -387,7 +431,7 @@ class AccountingRepository(
             journalId = jResult.getOrNull()
         }
 
-        // 2. Insert Sales Invoice
+        // 3. Insert Sales Invoice
         val invoice = SalesInvoice(
             invoiceNumber = invoiceNumber,
             date = date,
@@ -405,11 +449,11 @@ class AccountingRepository(
             notes = notes
         )
         val invoiceId = invoiceDao.insertSalesInvoice(invoice)
-        val linkedItems = items.map { it.copy(invoiceId = invoiceId) }
+        val linkedItems = preparedItems.map { it.copy(invoiceId = invoiceId) }
         invoiceDao.insertSalesInvoiceItems(linkedItems)
 
-        // 3. Update Product Stocks and record stock movements
-        for (item in items) {
+        // 3. Update Product Stocks and record stock movements (with accurate unitCost for COGS)
+        for (item in linkedItems) {
             productDao.updateStockQuantity(item.productId, -item.quantity)
             productDao.insertMovement(
                 StockMovement(
@@ -418,7 +462,7 @@ class AccountingRepository(
                     date = date,
                     movementType = MovementType.SALE,
                     quantity = item.quantity,
-                    unitPrice = item.unitPrice,
+                    unitPrice = item.unitCost,
                     referenceType = "SALES_INVOICE",
                     referenceId = invoiceId,
                     referenceNumber = invoiceNumber,
@@ -433,6 +477,213 @@ class AccountingRepository(
         }
 
         Result.success(invoiceId)
+    }
+
+    suspend fun updateSalesInvoice(
+        invoiceId: Long,
+        invoiceNumber: String,
+        date: Long,
+        customerId: Long?,
+        customerName: String,
+        items: List<SalesInvoiceItem>,
+        discount: Double,
+        taxRate: Double,
+        taxAmountOverride: Double?,
+        paymentType: PaymentType,
+        notes: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (items.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("يجب إضافة أصناف للفاتورة"))
+        }
+
+        val oldInvoice = invoiceDao.getSalesInvoiceById(invoiceId)
+            ?: return@withContext Result.failure(IllegalArgumentException("الفاتورة غير موجودة"))
+
+        // 1. Rollback old effects
+        if (oldInvoice.paymentType == PaymentType.CREDIT && oldInvoice.customerId != null) {
+            partnerDao.updateCustomerBalance(oldInvoice.customerId, -oldInvoice.totalAmount)
+        }
+        val oldItems = invoiceDao.getSalesInvoiceItems(invoiceId)
+        for (oldItem in oldItems) {
+            productDao.updateStockQuantity(oldItem.productId, oldItem.quantity)
+        }
+        productDao.deleteMovementsForReference("SALES_INVOICE", invoiceId)
+        reverseAndDeleteJournalEntry(oldInvoice.journalEntryId)
+        invoiceDao.deleteSalesInvoiceItems(invoiceId)
+
+        // 2. Prepare items with cost and compute new totals
+        val preparedItems = items.map { item ->
+            val prod = productDao.getProductById(item.productId)
+            var cost = if (item.unitCost > 0) item.unitCost else (prod?.purchasePrice ?: 0.0)
+            if (cost <= 0.0) {
+                val lastPurch = productDao.getLastPurchasePrice(item.productId)
+                if (lastPurch != null && lastPurch > 0.0) {
+                    cost = lastPurch
+                }
+            }
+            item.copy(unitCost = cost)
+        }
+        val totalCost = preparedItems.sumOf { it.quantity * it.unitCost }
+
+        val subtotal = items.sumOf { it.lineTotal }
+        val afterDiscount = (subtotal - discount).coerceAtLeast(0.0)
+        val taxAmount = taxAmountOverride ?: (afterDiscount * (taxRate / 100.0))
+        val totalAmount = afterDiscount + taxAmount
+        val paidAmount = if (paymentType == PaymentType.CREDIT) 0.0 else totalAmount
+        val remainingAmount = totalAmount - paidAmount
+
+        // 3. New Journal Entry
+        val cashAccount = if (paymentType == PaymentType.BANK) {
+            accountDao.getAccountByCode("112") ?: accountDao.getAccountByCode("111")
+        } else {
+            accountDao.getAccountByCode("111") ?: accountDao.getAccountByCode("112")
+        }
+        val receivablesAccount = accountDao.getAccountByCode("113")
+        val salesRevenueAccount = accountDao.getAccountByCode("41")
+        val taxLiabilityAccount = accountDao.getAccountByCode("212")
+        val cogsAccount = accountDao.getAccountByCode("51")
+        val inventoryAccount = accountDao.getAccountByCode("114")
+
+        val journalLines = mutableListOf<JournalEntryLine>()
+        if (paymentType == PaymentType.CASH || paymentType == PaymentType.BANK) {
+            cashAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = totalAmount,
+                        credit = 0.0,
+                        description = "تحصيل فاتورة مبيعات $invoiceNumber (معدلة)"
+                    )
+                )
+            }
+        } else {
+            receivablesAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = totalAmount,
+                        credit = 0.0,
+                        description = "مبيعات آجلة فاتورة $invoiceNumber للعميل $customerName (معدلة)"
+                    )
+                )
+            }
+        }
+
+        salesRevenueAccount?.let {
+            journalLines.add(
+                JournalEntryLine(
+                    accountId = it.id,
+                    accountCode = it.code,
+                    accountName = it.nameAr,
+                    debit = 0.0,
+                    credit = afterDiscount,
+                    description = "إيراد مبيعات فاتورة $invoiceNumber (معدلة)"
+                )
+            )
+        }
+
+        if (taxAmount > 0) {
+            taxLiabilityAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = 0.0,
+                        credit = taxAmount,
+                        description = "ضريبة القيمة المضافة فاتورة $invoiceNumber (معدلة)"
+                    )
+                )
+            }
+        }
+
+        // COGS and Inventory lines
+        if (totalCost > 0 && cogsAccount != null && inventoryAccount != null) {
+            journalLines.add(
+                JournalEntryLine(
+                    accountId = cogsAccount.id,
+                    accountCode = cogsAccount.code,
+                    accountName = cogsAccount.nameAr,
+                    debit = totalCost,
+                    credit = 0.0,
+                    description = "تكلفة مبيعات فاتورة $invoiceNumber (معدلة)"
+                )
+            )
+            journalLines.add(
+                JournalEntryLine(
+                    accountId = inventoryAccount.id,
+                    accountCode = inventoryAccount.code,
+                    accountName = inventoryAccount.nameAr,
+                    debit = 0.0,
+                    credit = totalCost,
+                    description = "صرف بضاعة من المخزون فاتورة $invoiceNumber (معدلة)"
+                )
+            )
+        }
+
+        var newJournalId: Long? = null
+        if (journalLines.size >= 2) {
+            val jResult = createJournalEntry(
+                entryNumber = "JV-SALE-$invoiceNumber",
+                date = date,
+                description = "قيد مبيعات الفاتورة $invoiceNumber - $customerName (معدلة)",
+                referenceNumber = invoiceNumber,
+                lines = journalLines,
+                source = "SALES"
+            )
+            newJournalId = jResult.getOrNull()
+        }
+
+        // 4. Update Invoice entity
+        val updatedInvoice = oldInvoice.copy(
+            invoiceNumber = invoiceNumber,
+            date = date,
+            customerId = customerId,
+            customerName = customerName,
+            subtotal = subtotal,
+            discount = discount,
+            taxRate = taxRate,
+            taxAmount = taxAmount,
+            totalAmount = totalAmount,
+            paidAmount = paidAmount,
+            remainingAmount = remainingAmount,
+            paymentType = paymentType,
+            journalEntryId = newJournalId,
+            notes = notes
+        )
+        invoiceDao.updateSalesInvoice(updatedInvoice)
+
+        // 5. Insert new items with cost and update stocks & movements
+        val linkedItems = preparedItems.map { it.copy(invoiceId = invoiceId) }
+        invoiceDao.insertSalesInvoiceItems(linkedItems)
+
+        for (item in linkedItems) {
+            productDao.updateStockQuantity(item.productId, -item.quantity)
+            productDao.insertMovement(
+                StockMovement(
+                    productId = item.productId,
+                    productName = item.productName,
+                    date = date,
+                    movementType = MovementType.SALE,
+                    quantity = item.quantity,
+                    unitPrice = item.unitCost,
+                    referenceType = "SALES_INVOICE",
+                    referenceId = invoiceId,
+                    referenceNumber = invoiceNumber,
+                    notes = "صرف مبيعات فاتورة $invoiceNumber (معدلة)"
+                )
+            )
+        }
+
+        if (paymentType == PaymentType.CREDIT && customerId != null) {
+            partnerDao.updateCustomerBalance(customerId, totalAmount)
+        }
+
+        Result.success(Unit)
     }
 
     suspend fun getSalesInvoiceItems(invoiceId: Long): List<SalesInvoiceItem> = withContext(Dispatchers.IO) {
@@ -452,26 +703,8 @@ class AccountingRepository(
         }
         productDao.deleteMovementsForReference("SALES_INVOICE", invoice.id)
 
-        // 3. Delete journal entry if present
-        if (invoice.journalEntryId != null) {
-            val jEntry = journalDao.getEntryById(invoice.journalEntryId)
-            if (jEntry != null) {
-                val lines = journalDao.getLinesForEntry(jEntry.id)
-                for (line in lines) {
-                    val acc = accountDao.getAccountById(line.accountId)
-                    if (acc != null) {
-                        val newBalance = if (acc.type.isDebitDefault) {
-                            acc.currentBalance - (line.debit - line.credit)
-                        } else {
-                            acc.currentBalance - (line.credit - line.debit)
-                        }
-                        accountDao.updateBalance(acc.id, newBalance)
-                    }
-                }
-                journalDao.deleteLinesForEntry(jEntry.id)
-                journalDao.deleteEntry(jEntry)
-            }
-        }
+        // 3. Delete journal entry
+        reverseAndDeleteJournalEntry(invoice.journalEntryId)
 
         // 4. Delete invoice & items
         invoiceDao.deleteSalesInvoiceItems(invoice.id)
@@ -615,6 +848,9 @@ class AccountingRepository(
         // 3. Update Product Stocks and purchase prices
         for (item in items) {
             productDao.updateStockQuantity(item.productId, item.quantity)
+            if (item.unitPrice > 0.0) {
+                productDao.updatePurchasePrice(item.productId, item.unitPrice)
+            }
             productDao.insertMovement(
                 StockMovement(
                     productId = item.productId,
@@ -643,6 +879,179 @@ class AccountingRepository(
         invoiceDao.getPurchaseInvoiceItems(billId)
     }
 
+    suspend fun updatePurchaseInvoice(
+        billId: Long,
+        billNumber: String,
+        supplierInvoiceRef: String,
+        date: Long,
+        supplierId: Long?,
+        supplierName: String,
+        items: List<PurchaseInvoiceItem>,
+        discount: Double,
+        taxRate: Double,
+        taxAmountOverride: Double?,
+        paymentType: PaymentType,
+        notes: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (items.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("يجب إضافة أصناف لفاتورة الشراء"))
+        }
+
+        val oldBill = invoiceDao.getPurchaseInvoiceById(billId)
+            ?: return@withContext Result.failure(IllegalArgumentException("فاتورة الشراء غير موجودة"))
+
+        // 1. Rollback old effects
+        if (oldBill.paymentType == PaymentType.CREDIT && oldBill.supplierId != null) {
+            partnerDao.updateSupplierBalance(oldBill.supplierId, -oldBill.totalAmount)
+        }
+        val oldItems = invoiceDao.getPurchaseInvoiceItems(billId)
+        for (oldItem in oldItems) {
+            productDao.updateStockQuantity(oldItem.productId, -oldItem.quantity)
+        }
+        productDao.deleteMovementsForReference("PURCHASE_INVOICE", billId)
+        reverseAndDeleteJournalEntry(oldBill.journalEntryId)
+        invoiceDao.deletePurchaseInvoiceItems(billId)
+
+        // 2. Compute new totals
+        val subtotal = items.sumOf { it.lineTotal }
+        val afterDiscount = (subtotal - discount).coerceAtLeast(0.0)
+        val taxAmount = taxAmountOverride ?: (afterDiscount * (taxRate / 100.0))
+        val totalAmount = afterDiscount + taxAmount
+        val paidAmount = if (paymentType == PaymentType.CREDIT) 0.0 else totalAmount
+        val remainingAmount = totalAmount - paidAmount
+
+        // 3. New Journal Entry
+        val cashAccount = if (paymentType == PaymentType.BANK) {
+            accountDao.getAccountByCode("112") ?: accountDao.getAccountByCode("111")
+        } else {
+            accountDao.getAccountByCode("111") ?: accountDao.getAccountByCode("112")
+        }
+        val inventoryAccount = accountDao.getAccountByCode("114")
+        val payablesAccount = accountDao.getAccountByCode("211")
+        val taxAccount = accountDao.getAccountByCode("212")
+
+        val journalLines = mutableListOf<JournalEntryLine>()
+        inventoryAccount?.let {
+            journalLines.add(
+                JournalEntryLine(
+                    accountId = it.id,
+                    accountCode = it.code,
+                    accountName = it.nameAr,
+                    debit = afterDiscount,
+                    credit = 0.0,
+                    description = "توريد مخزون فاتورة شراء $billNumber (معدلة)"
+                )
+            )
+        }
+
+        if (taxAmount > 0) {
+            taxAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = taxAmount,
+                        credit = 0.0,
+                        description = "ضريبة مشتريات مدفوعة $billNumber (معدلة)"
+                    )
+                )
+            }
+        }
+
+        if (paymentType == PaymentType.CASH || paymentType == PaymentType.BANK) {
+            cashAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = 0.0,
+                        credit = totalAmount,
+                        description = "سداد فاتورة مشتريات $billNumber للمورد $supplierName (معدلة)"
+                    )
+                )
+            }
+        } else {
+            payablesAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = 0.0,
+                        credit = totalAmount,
+                        description = "استحقاق مورد فاتورة مشتريات آجلة $billNumber - $supplierName (معدلة)"
+                    )
+                )
+            }
+        }
+
+        var newJournalId: Long? = null
+        if (journalLines.size >= 2) {
+            val jResult = createJournalEntry(
+                entryNumber = "JV-PURCHASE-$billNumber",
+                date = date,
+                description = "قيد مشتريات الفاتورة $billNumber - $supplierName (معدلة)",
+                referenceNumber = billNumber,
+                lines = journalLines,
+                source = "PURCHASES"
+            )
+            newJournalId = jResult.getOrNull()
+        }
+
+        // 4. Update Bill entity
+        val updatedBill = oldBill.copy(
+            billNumber = billNumber,
+            supplierInvoiceRef = supplierInvoiceRef,
+            date = date,
+            supplierId = supplierId,
+            supplierName = supplierName,
+            subtotal = subtotal,
+            discount = discount,
+            taxRate = taxRate,
+            taxAmount = taxAmount,
+            totalAmount = totalAmount,
+            paidAmount = paidAmount,
+            remainingAmount = remainingAmount,
+            paymentType = paymentType,
+            journalEntryId = newJournalId,
+            notes = notes
+        )
+        invoiceDao.updatePurchaseInvoice(updatedBill)
+
+        // 5. Insert new items and update product stocks and movements
+        val linkedItems = items.map { it.copy(billId = billId) }
+        invoiceDao.insertPurchaseInvoiceItems(linkedItems)
+
+        for (item in items) {
+            productDao.updateStockQuantity(item.productId, item.quantity)
+            if (item.unitPrice > 0.0) {
+                productDao.updatePurchasePrice(item.productId, item.unitPrice)
+            }
+            productDao.insertMovement(
+                StockMovement(
+                    productId = item.productId,
+                    productName = item.productName,
+                    date = date,
+                    movementType = MovementType.PURCHASE,
+                    quantity = item.quantity,
+                    unitPrice = item.unitPrice,
+                    referenceType = "PURCHASE_INVOICE",
+                    referenceId = billId,
+                    referenceNumber = billNumber,
+                    notes = "إضافة مشتريات فاتورة $billNumber (معدلة)"
+                )
+            )
+        }
+
+        if (paymentType == PaymentType.CREDIT && supplierId != null) {
+            partnerDao.updateSupplierBalance(supplierId, totalAmount)
+        }
+
+        Result.success(Unit)
+    }
+
     suspend fun deletePurchaseInvoice(bill: PurchaseInvoice): Result<Unit> = withContext(Dispatchers.IO) {
         // 1. Rollback supplier balance
         if (bill.paymentType == PaymentType.CREDIT && bill.supplierId != null) {
@@ -657,25 +1066,7 @@ class AccountingRepository(
         productDao.deleteMovementsForReference("PURCHASE_INVOICE", bill.id)
 
         // 3. Delete journal entry
-        if (bill.journalEntryId != null) {
-            val jEntry = journalDao.getEntryById(bill.journalEntryId)
-            if (jEntry != null) {
-                val lines = journalDao.getLinesForEntry(jEntry.id)
-                for (line in lines) {
-                    val acc = accountDao.getAccountById(line.accountId)
-                    if (acc != null) {
-                        val newBalance = if (acc.type.isDebitDefault) {
-                            acc.currentBalance - (line.debit - line.credit)
-                        } else {
-                            acc.currentBalance - (line.credit - line.debit)
-                        }
-                        accountDao.updateBalance(acc.id, newBalance)
-                    }
-                }
-                journalDao.deleteLinesForEntry(jEntry.id)
-                journalDao.deleteEntry(jEntry)
-            }
-        }
+        reverseAndDeleteJournalEntry(bill.journalEntryId)
 
         // 4. Delete bill & items
         invoiceDao.deletePurchaseInvoiceItems(bill.id)
@@ -805,11 +1196,15 @@ class AccountingRepository(
             notes = notes
         )
         val returnId = returnDao.insertSalesReturn(sReturn)
-        val linkedItems = items.map { it.copy(returnId = returnId) }
+        val linkedItems = items.map { item ->
+            val prod = productDao.getProductById(item.productId)
+            val cost = if (item.unitCost > 0) item.unitCost else (prod?.purchasePrice ?: 0.0)
+            item.copy(returnId = returnId, unitCost = cost)
+        }
         returnDao.insertSalesReturnItems(linkedItems)
 
-        // 3. Return items back to Stock
-        for (item in items) {
+        // 3. Return items back to Stock (with accurate unitCost for COGS)
+        for (item in linkedItems) {
             productDao.updateStockQuantity(item.productId, item.quantity)
             productDao.insertMovement(
                 StockMovement(
@@ -818,7 +1213,7 @@ class AccountingRepository(
                     date = date,
                     movementType = MovementType.RETURN_IN,
                     quantity = item.quantity,
-                    unitPrice = item.unitPrice,
+                    unitPrice = item.unitCost,
                     referenceType = "SALES_RETURN",
                     referenceId = returnId,
                     referenceNumber = returnNumber,
@@ -833,6 +1228,173 @@ class AccountingRepository(
         }
 
         Result.success(returnId)
+    }
+
+    suspend fun updateSalesReturn(
+        returnId: Long,
+        returnNumber: String,
+        originalInvoiceNumber: String,
+        date: Long,
+        customerId: Long?,
+        customerName: String,
+        items: List<SalesReturnItem>,
+        taxRate: Double,
+        taxAmountOverride: Double?,
+        paymentType: PaymentType,
+        notes: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (items.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("يجب إضافة أصناف لمردود المبيعات"))
+        }
+
+        val oldReturn = returnDao.getSalesReturnById(returnId)
+            ?: return@withContext Result.failure(IllegalArgumentException("مردود المبيعات غير موجود"))
+
+        // 1. Rollback old effects
+        if (oldReturn.paymentType == PaymentType.CREDIT && oldReturn.customerId != null) {
+            partnerDao.updateCustomerBalance(oldReturn.customerId, oldReturn.totalAmount)
+        }
+        val oldItems = returnDao.getSalesReturnItems(returnId)
+        for (oldItem in oldItems) {
+            productDao.updateStockQuantity(oldItem.productId, -oldItem.quantity)
+        }
+        productDao.deleteMovementsForReference("SALES_RETURN", returnId)
+        reverseAndDeleteJournalEntry(oldReturn.journalEntryId)
+        returnDao.deleteSalesReturnItems(returnId)
+
+        // 2. Calculations
+        val subtotal = items.sumOf { it.lineTotal }
+        val taxAmount = taxAmountOverride ?: (subtotal * (taxRate / 100.0))
+        val totalAmount = subtotal + taxAmount
+
+        // 3. New Journal
+        val cashAccount = if (paymentType == PaymentType.BANK) {
+            accountDao.getAccountByCode("112") ?: accountDao.getAccountByCode("111")
+        } else {
+            accountDao.getAccountByCode("111") ?: accountDao.getAccountByCode("112")
+        }
+        val receivablesAccount = accountDao.getAccountByCode("113")
+        val salesReturnAccount = accountDao.getAccountByCode("412") ?: accountDao.getAccountByCode("41")
+        val taxLiabilityAccount = accountDao.getAccountByCode("212")
+
+        val journalLines = mutableListOf<JournalEntryLine>()
+        salesReturnAccount?.let {
+            journalLines.add(
+                JournalEntryLine(
+                    accountId = it.id,
+                    accountCode = it.code,
+                    accountName = it.nameAr,
+                    debit = subtotal,
+                    credit = 0.0,
+                    description = "مردود مبيعات رقم $returnNumber (معدل)"
+                )
+            )
+        }
+
+        if (taxAmount > 0) {
+            taxLiabilityAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = taxAmount,
+                        credit = 0.0,
+                        description = "ضريبة مردود مبيعات $returnNumber"
+                    )
+                )
+            }
+        }
+
+        if (paymentType == PaymentType.CASH || paymentType == PaymentType.BANK) {
+            cashAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = 0.0,
+                        credit = totalAmount,
+                        description = "صرف قيمة مردود مبيعات $returnNumber (معدل)"
+                    )
+                )
+            }
+        } else {
+            receivablesAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = 0.0,
+                        credit = totalAmount,
+                        description = "تخفيض حساب العميل مردود مبيعات $returnNumber - $customerName (معدل)"
+                    )
+                )
+            }
+        }
+
+        var newJournalId: Long? = null
+        if (journalLines.size >= 2) {
+            val jResult = createJournalEntry(
+                entryNumber = "JV-SALES-RET-$returnNumber",
+                date = date,
+                description = "قيد مردود مبيعات $returnNumber - $customerName (معدل)",
+                referenceNumber = returnNumber,
+                lines = journalLines,
+                source = "SALES_RETURN"
+            )
+            newJournalId = jResult.getOrNull()
+        }
+
+        // 4. Update return entity
+        val updatedReturn = oldReturn.copy(
+            returnNumber = returnNumber,
+            originalInvoiceNumber = originalInvoiceNumber,
+            date = date,
+            customerId = customerId,
+            customerName = customerName,
+            subtotal = subtotal,
+            taxRate = taxRate,
+            taxAmount = taxAmount,
+            totalAmount = totalAmount,
+            paymentType = paymentType,
+            journalEntryId = newJournalId,
+            notes = notes
+        )
+        returnDao.updateSalesReturn(updatedReturn)
+
+        // 5. Insert items and update stock
+        val linkedItems = items.map { item ->
+            val prod = productDao.getProductById(item.productId)
+            val cost = if (item.unitCost > 0) item.unitCost else (prod?.purchasePrice ?: 0.0)
+            item.copy(returnId = returnId, unitCost = cost)
+        }
+        returnDao.insertSalesReturnItems(linkedItems)
+
+        for (item in linkedItems) {
+            productDao.updateStockQuantity(item.productId, item.quantity)
+            productDao.insertMovement(
+                StockMovement(
+                    productId = item.productId,
+                    productName = item.productName,
+                    date = date,
+                    movementType = MovementType.RETURN_IN,
+                    quantity = item.quantity,
+                    unitPrice = item.unitCost,
+                    referenceType = "SALES_RETURN",
+                    referenceId = returnId,
+                    referenceNumber = returnNumber,
+                    notes = "مرتجع مبيعات إشعار $returnNumber (معدل)"
+                )
+            )
+        }
+
+        if (paymentType == PaymentType.CREDIT && customerId != null) {
+            partnerDao.updateCustomerBalance(customerId, -totalAmount)
+        }
+
+        Result.success(Unit)
     }
 
     suspend fun getSalesReturnItems(returnId: Long): List<SalesReturnItem> = withContext(Dispatchers.IO) {
@@ -850,25 +1412,7 @@ class AccountingRepository(
         }
         productDao.deleteMovementsForReference("SALES_RETURN", sReturn.id)
 
-        if (sReturn.journalEntryId != null) {
-            val jEntry = journalDao.getEntryById(sReturn.journalEntryId)
-            if (jEntry != null) {
-                val lines = journalDao.getLinesForEntry(jEntry.id)
-                for (line in lines) {
-                    val acc = accountDao.getAccountById(line.accountId)
-                    if (acc != null) {
-                        val newBalance = if (acc.type.isDebitDefault) {
-                            acc.currentBalance - (line.debit - line.credit)
-                        } else {
-                            acc.currentBalance - (line.credit - line.debit)
-                        }
-                        accountDao.updateBalance(acc.id, newBalance)
-                    }
-                }
-                journalDao.deleteLinesForEntry(jEntry.id)
-                journalDao.deleteEntry(jEntry)
-            }
-        }
+        reverseAndDeleteJournalEntry(sReturn.journalEntryId)
 
         returnDao.deleteSalesReturnItems(sReturn.id)
         returnDao.deleteSalesReturn(sReturn)
@@ -1027,6 +1571,170 @@ class AccountingRepository(
         Result.success(returnId)
     }
 
+    suspend fun updatePurchaseReturn(
+        returnId: Long,
+        returnNumber: String,
+        originalBillNumber: String,
+        date: Long,
+        supplierId: Long?,
+        supplierName: String,
+        items: List<PurchaseReturnItem>,
+        taxRate: Double,
+        taxAmountOverride: Double?,
+        paymentType: PaymentType,
+        notes: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (items.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("يجب إضافة أصناف لمردود المشتريات"))
+        }
+
+        val oldReturn = returnDao.getPurchaseReturnById(returnId)
+            ?: return@withContext Result.failure(IllegalArgumentException("مردود المشتريات غير موجود"))
+
+        // 1. Rollback old effects
+        if (oldReturn.paymentType == PaymentType.CREDIT && oldReturn.supplierId != null) {
+            partnerDao.updateSupplierBalance(oldReturn.supplierId, oldReturn.totalAmount)
+        }
+        val oldItems = returnDao.getPurchaseReturnItems(returnId)
+        for (oldItem in oldItems) {
+            productDao.updateStockQuantity(oldItem.productId, oldItem.quantity)
+        }
+        productDao.deleteMovementsForReference("PURCHASE_RETURN", returnId)
+        reverseAndDeleteJournalEntry(oldReturn.journalEntryId)
+        returnDao.deletePurchaseReturnItems(returnId)
+
+        // 2. Calculations
+        val subtotal = items.sumOf { it.lineTotal }
+        val taxAmount = taxAmountOverride ?: (subtotal * (taxRate / 100.0))
+        val totalAmount = subtotal + taxAmount
+
+        // 3. New Journal Entry
+        val cashAccount = if (paymentType == PaymentType.BANK) {
+            accountDao.getAccountByCode("112") ?: accountDao.getAccountByCode("111")
+        } else {
+            accountDao.getAccountByCode("111") ?: accountDao.getAccountByCode("112")
+        }
+        val inventoryAccount = accountDao.getAccountByCode("114")
+        val payablesAccount = accountDao.getAccountByCode("211")
+        val taxAccount = accountDao.getAccountByCode("212")
+
+        val journalLines = mutableListOf<JournalEntryLine>()
+
+        if (paymentType == PaymentType.CASH || paymentType == PaymentType.BANK) {
+            cashAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = totalAmount,
+                        credit = 0.0,
+                        description = "استلام نقدية مردود مشتريات $returnNumber (معدل)"
+                    )
+                )
+            }
+        } else {
+            payablesAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = totalAmount,
+                        credit = 0.0,
+                        description = "تخفيض حساب المورد مردود مشتريات $returnNumber - $supplierName (معدل)"
+                    )
+                )
+            }
+        }
+
+        inventoryAccount?.let {
+            journalLines.add(
+                JournalEntryLine(
+                    accountId = it.id,
+                    accountCode = it.code,
+                    accountName = it.nameAr,
+                    debit = 0.0,
+                    credit = subtotal,
+                    description = "صرف مخزون مردود مشتريات $returnNumber (معدل)"
+                )
+            )
+        }
+
+        if (taxAmount > 0) {
+            taxAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = 0.0,
+                        credit = taxAmount,
+                        description = "تخفيض ضريبة مشتريات مستردة $returnNumber"
+                    )
+                )
+            }
+        }
+
+        var newJournalId: Long? = null
+        if (journalLines.size >= 2) {
+            val jResult = createJournalEntry(
+                entryNumber = "JV-PURCHASE-RET-$returnNumber",
+                date = date,
+                description = "قيد مردود مشتريات $returnNumber - $supplierName (معدل)",
+                referenceNumber = returnNumber,
+                lines = journalLines,
+                source = "PURCHASE_RETURN"
+            )
+            newJournalId = jResult.getOrNull()
+        }
+
+        // 4. Update Return entity
+        val updatedReturn = oldReturn.copy(
+            returnNumber = returnNumber,
+            originalBillNumber = originalBillNumber,
+            date = date,
+            supplierId = supplierId,
+            supplierName = supplierName,
+            subtotal = subtotal,
+            taxRate = taxRate,
+            taxAmount = taxAmount,
+            totalAmount = totalAmount,
+            paymentType = paymentType,
+            journalEntryId = newJournalId,
+            notes = notes
+        )
+        returnDao.updatePurchaseReturn(updatedReturn)
+
+        // 5. Insert new items and deduct stock
+        val linkedItems = items.map { it.copy(returnId = returnId) }
+        returnDao.insertPurchaseReturnItems(linkedItems)
+
+        for (item in items) {
+            productDao.updateStockQuantity(item.productId, -item.quantity)
+            productDao.insertMovement(
+                StockMovement(
+                    productId = item.productId,
+                    productName = item.productName,
+                    date = date,
+                    movementType = MovementType.RETURN_OUT,
+                    quantity = item.quantity,
+                    unitPrice = item.unitPrice,
+                    referenceType = "PURCHASE_RETURN",
+                    referenceId = returnId,
+                    referenceNumber = returnNumber,
+                    notes = "مرتجع مشتريات للمورد $returnNumber (معدل)"
+                )
+            )
+        }
+
+        if (paymentType == PaymentType.CREDIT && supplierId != null) {
+            partnerDao.updateSupplierBalance(supplierId, -totalAmount)
+        }
+
+        Result.success(Unit)
+    }
+
     suspend fun getPurchaseReturnItems(returnId: Long): List<PurchaseReturnItem> = withContext(Dispatchers.IO) {
         returnDao.getPurchaseReturnItems(returnId)
     }
@@ -1042,25 +1750,7 @@ class AccountingRepository(
         }
         productDao.deleteMovementsForReference("PURCHASE_RETURN", pReturn.id)
 
-        if (pReturn.journalEntryId != null) {
-            val jEntry = journalDao.getEntryById(pReturn.journalEntryId)
-            if (jEntry != null) {
-                val lines = journalDao.getLinesForEntry(jEntry.id)
-                for (line in lines) {
-                    val acc = accountDao.getAccountById(line.accountId)
-                    if (acc != null) {
-                        val newBalance = if (acc.type.isDebitDefault) {
-                            acc.currentBalance - (line.debit - line.credit)
-                        } else {
-                            acc.currentBalance - (line.credit - line.debit)
-                        }
-                        accountDao.updateBalance(acc.id, newBalance)
-                    }
-                }
-                journalDao.deleteLinesForEntry(jEntry.id)
-                journalDao.deleteEntry(jEntry)
-            }
-        }
+        reverseAndDeleteJournalEntry(pReturn.journalEntryId)
 
         returnDao.deletePurchaseReturnItems(pReturn.id)
         returnDao.deletePurchaseReturn(pReturn)
@@ -1263,6 +1953,221 @@ class AccountingRepository(
         Result.success(vId)
     }
 
+    suspend fun updateVoucher(
+        voucherId: Long,
+        voucherNumber: String,
+        type: VoucherType,
+        date: Long,
+        amount: Double,
+        paymentType: PaymentType,
+        partnerType: VoucherPartnerType,
+        partnerId: Long?,
+        partnerName: String,
+        accountId: Long?,
+        accountName: String,
+        notes: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (amount <= 0) {
+            return@withContext Result.failure(IllegalArgumentException("يجب أن يكون مبلغ السند أكبر من صفر"))
+        }
+
+        val oldVoucher = voucherDao.getVoucherById(voucherId)
+            ?: return@withContext Result.failure(IllegalArgumentException("السند غير موجود"))
+
+        // 1. Rollback old partner balance
+        if (oldVoucher.type == VoucherType.RECEIPT) {
+            if (oldVoucher.partnerType == VoucherPartnerType.CUSTOMER && oldVoucher.partnerId != null) {
+                partnerDao.updateCustomerBalance(oldVoucher.partnerId, oldVoucher.amount)
+            } else if (oldVoucher.partnerType == VoucherPartnerType.SUPPLIER && oldVoucher.partnerId != null) {
+                partnerDao.updateSupplierBalance(oldVoucher.partnerId, -oldVoucher.amount)
+            }
+        } else {
+            if (oldVoucher.partnerType == VoucherPartnerType.SUPPLIER && oldVoucher.partnerId != null) {
+                partnerDao.updateSupplierBalance(oldVoucher.partnerId, oldVoucher.amount)
+            } else if (oldVoucher.partnerType == VoucherPartnerType.CUSTOMER && oldVoucher.partnerId != null) {
+                partnerDao.updateCustomerBalance(oldVoucher.partnerId, -oldVoucher.amount)
+            }
+        }
+
+        // 2. Rollback old journal
+        reverseAndDeleteJournalEntry(oldVoucher.journalEntryId)
+
+        // 3. New Journal
+        val cashAccount = if (paymentType == PaymentType.BANK) {
+            accountDao.getAccountByCode("112") ?: accountDao.getAccountByCode("111")
+        } else {
+            accountDao.getAccountByCode("111") ?: accountDao.getAccountByCode("112")
+        }
+        val receivablesAccount = accountDao.getAccountByCode("113")
+        val payablesAccount = accountDao.getAccountByCode("211")
+
+        val journalLines = mutableListOf<JournalEntryLine>()
+
+        if (type == VoucherType.RECEIPT) {
+            cashAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = amount,
+                        credit = 0.0,
+                        description = "قبض مبلغ بسند رقم $voucherNumber من $partnerName (معدل)"
+                    )
+                )
+            }
+
+            when (partnerType) {
+                VoucherPartnerType.CUSTOMER -> {
+                    receivablesAccount?.let {
+                        journalLines.add(
+                            JournalEntryLine(
+                                accountId = it.id,
+                                accountCode = it.code,
+                                accountName = it.nameAr,
+                                debit = 0.0,
+                                credit = amount,
+                                description = "سداد عميل سند قبض $voucherNumber - $partnerName (معدل)"
+                            )
+                        )
+                    }
+                    if (partnerId != null) {
+                        partnerDao.updateCustomerBalance(partnerId, -amount)
+                    }
+                }
+                VoucherPartnerType.SUPPLIER -> {
+                    payablesAccount?.let {
+                        journalLines.add(
+                            JournalEntryLine(
+                                accountId = it.id,
+                                accountCode = it.code,
+                                accountName = it.nameAr,
+                                debit = 0.0,
+                                credit = amount,
+                                description = "تحصيل مسترد من مورد سند قبض $voucherNumber - $partnerName (معدل)"
+                            )
+                        )
+                    }
+                    if (partnerId != null) {
+                        partnerDao.updateSupplierBalance(partnerId, amount)
+                    }
+                }
+                VoucherPartnerType.GENERAL_ACCOUNT -> {
+                    val targetAcc = if (accountId != null) accountDao.getAccountById(accountId) else null
+                    targetAcc?.let {
+                        journalLines.add(
+                            JournalEntryLine(
+                                accountId = it.id,
+                                accountCode = it.code,
+                                accountName = it.nameAr,
+                                debit = 0.0,
+                                credit = amount,
+                                description = "إيراد / قبض لحساب ${it.nameAr} سند $voucherNumber (معدل)"
+                            )
+                        )
+                    }
+                }
+            }
+        } else {
+            when (partnerType) {
+                VoucherPartnerType.SUPPLIER -> {
+                    payablesAccount?.let {
+                        journalLines.add(
+                            JournalEntryLine(
+                                accountId = it.id,
+                                accountCode = it.code,
+                                accountName = it.nameAr,
+                                debit = amount,
+                                credit = 0.0,
+                                description = "سداد مورد سند صرف $voucherNumber - $partnerName (معدل)"
+                            )
+                        )
+                    }
+                    if (partnerId != null) {
+                        partnerDao.updateSupplierBalance(partnerId, -amount)
+                    }
+                }
+                VoucherPartnerType.CUSTOMER -> {
+                    receivablesAccount?.let {
+                        journalLines.add(
+                            JournalEntryLine(
+                                accountId = it.id,
+                                accountCode = it.code,
+                                accountName = it.nameAr,
+                                debit = amount,
+                                credit = 0.0,
+                                description = "صرف مسترد لعميل سند صرف $voucherNumber - $partnerName (معدل)"
+                            )
+                        )
+                    }
+                    if (partnerId != null) {
+                        partnerDao.updateCustomerBalance(partnerId, amount)
+                    }
+                }
+                VoucherPartnerType.GENERAL_ACCOUNT -> {
+                    val targetAcc = if (accountId != null) accountDao.getAccountById(accountId) else null
+                    targetAcc?.let {
+                        journalLines.add(
+                            JournalEntryLine(
+                                accountId = it.id,
+                                accountCode = it.code,
+                                accountName = it.nameAr,
+                                debit = amount,
+                                credit = 0.0,
+                                description = "صرف مصروف / لحساب ${it.nameAr} سند $voucherNumber (معدل)"
+                            )
+                        )
+                    }
+                }
+            }
+
+            cashAccount?.let {
+                journalLines.add(
+                    JournalEntryLine(
+                        accountId = it.id,
+                        accountCode = it.code,
+                        accountName = it.nameAr,
+                        debit = 0.0,
+                        credit = amount,
+                        description = "صرف من الصندوق/البنك سند رقم $voucherNumber إلى $partnerName (معدل)"
+                    )
+                )
+            }
+        }
+
+        var newJournalId: Long? = null
+        if (journalLines.size >= 2) {
+            val jResult = createJournalEntry(
+                entryNumber = "JV-VOUCHER-$voucherNumber",
+                date = date,
+                description = "${type.arabicName} رقم $voucherNumber - $partnerName (معدل)",
+                referenceNumber = voucherNumber,
+                lines = journalLines,
+                source = if (type == VoucherType.RECEIPT) "RECEIPT_VOUCHER" else "PAYMENT_VOUCHER"
+            )
+            newJournalId = jResult.getOrNull()
+        }
+
+        // 4. Update Voucher
+        val updatedVoucher = oldVoucher.copy(
+            voucherNumber = voucherNumber,
+            type = type,
+            date = date,
+            amount = amount,
+            paymentType = paymentType,
+            partnerType = partnerType,
+            partnerId = partnerId,
+            partnerName = partnerName,
+            accountId = accountId,
+            accountName = accountName,
+            notes = notes,
+            journalEntryId = newJournalId
+        )
+        voucherDao.updateVoucher(updatedVoucher)
+
+        Result.success(Unit)
+    }
+
     suspend fun deleteVoucher(voucher: Voucher): Result<Unit> = withContext(Dispatchers.IO) {
         // Rollback partner balance
         if (voucher.type == VoucherType.RECEIPT) {
@@ -1280,25 +2185,7 @@ class AccountingRepository(
         }
 
         // Delete journal entry
-        if (voucher.journalEntryId != null) {
-            val jEntry = journalDao.getEntryById(voucher.journalEntryId)
-            if (jEntry != null) {
-                val lines = journalDao.getLinesForEntry(jEntry.id)
-                for (line in lines) {
-                    val acc = accountDao.getAccountById(line.accountId)
-                    if (acc != null) {
-                        val newBalance = if (acc.type.isDebitDefault) {
-                            acc.currentBalance - (line.debit - line.credit)
-                        } else {
-                            acc.currentBalance - (line.credit - line.debit)
-                        }
-                        accountDao.updateBalance(acc.id, newBalance)
-                    }
-                }
-                journalDao.deleteLinesForEntry(jEntry.id)
-                journalDao.deleteEntry(jEntry)
-            }
-        }
+        reverseAndDeleteJournalEntry(voucher.journalEntryId)
 
         voucherDao.deleteVoucher(voucher)
         Result.success(Unit)
@@ -1400,5 +2287,141 @@ class AccountingRepository(
             )
         )
         Result.success(Unit)
+    }
+
+    suspend fun updateAllProductsMinStock(newMinStock: Double): Result<Unit> = withContext(Dispatchers.IO) {
+        productDao.updateAllMinStock(newMinStock)
+        Result.success(Unit)
+    }
+
+    // -------------------------------------------------------------
+    // Backup & Restore Database Operations
+    // -------------------------------------------------------------
+    private val backupManager = BackupManager(
+        accountDao = accountDao,
+        journalDao = journalDao,
+        productDao = productDao,
+        partnerDao = partnerDao,
+        invoiceDao = invoiceDao,
+        voucherDao = voucherDao,
+        returnDao = returnDao
+    )
+
+    suspend fun exportBackupJson(
+        storeName: String,
+        storePhone: String,
+        currencySymbol: String,
+        isTaxEnabled: Boolean,
+        defaultTaxRate: Double,
+        showDecimals: Boolean
+    ): String = withContext(Dispatchers.IO) {
+        backupManager.exportBackupJson(
+            storeName = storeName,
+            storePhone = storePhone,
+            currencySymbol = currencySymbol,
+            isTaxEnabled = isTaxEnabled,
+            defaultTaxRate = defaultTaxRate,
+            showDecimals = showDecimals
+        )
+    }
+
+    suspend fun restoreBackupJson(
+        jsonString: String,
+        onRestoreSettings: (storeName: String, storePhone: String, currencySymbol: String, isTaxEnabled: Boolean, defaultTaxRate: Double, showDecimals: Boolean) -> Unit
+    ): Result<String> = withContext(Dispatchers.IO) {
+        backupManager.restoreBackupJson(jsonString, onRestoreSettings)
+    }
+
+    // -------------------------------------------------------------
+    // Cost of Goods Sold (COGS) Recalculation & Repair
+    // -------------------------------------------------------------
+    suspend fun repairAndRecalculateCOGS(): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            // 1. Ensure COGS (51) and Inventory (114) accounts exist
+            var cogsAcc = accountDao.getAccountByCode("51")
+            if (cogsAcc == null) {
+                accountDao.insertAccount(
+                    Account(
+                        code = "51",
+                        nameAr = "تكلفة البضاعة المباعة",
+                        type = AccountType.EXPENSE,
+                        isGroup = false,
+                        currentBalance = 0.0,
+                        initialBalance = 0.0
+                    )
+                )
+            }
+
+            var inventoryAcc = accountDao.getAccountByCode("114")
+            if (inventoryAcc == null) {
+                accountDao.insertAccount(
+                    Account(
+                        code = "114",
+                        nameAr = "مخزون البضائع",
+                        type = AccountType.ASSET,
+                        isGroup = false,
+                        currentBalance = 0.0,
+                        initialBalance = 0.0
+                    )
+                )
+            }
+
+            // 2. Fix purchasePrice on products if 0 or missing
+            val products = productDao.getAllProductsList()
+            val movements = productDao.getAllMovementsList()
+            for (prod in products) {
+                if (prod.purchasePrice <= 0.0) {
+                    val lastPurch = productDao.getLastPurchasePrice(prod.id)
+                    if (lastPurch != null && lastPurch > 0.0) {
+                        productDao.updatePurchasePrice(prod.id, lastPurch)
+                    } else {
+                        val purchMove = movements.find { it.productId == prod.id && it.movementType == MovementType.PURCHASE && it.unitPrice > 0 }
+                        if (purchMove != null) {
+                            productDao.updatePurchasePrice(prod.id, purchMove.unitPrice)
+                        }
+                    }
+                }
+            }
+
+            // 3. Fix stock movements with 0 unit price for SALE or RETURN_IN
+            val updatedProducts = productDao.getAllProductsList().associateBy { it.id }
+            for (m in movements) {
+                if ((m.movementType == MovementType.SALE || m.movementType == MovementType.RETURN_IN) && m.unitPrice <= 0.0) {
+                    val prod = updatedProducts[m.productId]
+                    val cost = prod?.purchasePrice ?: 0.0
+                    if (cost > 0.0) {
+                        productDao.updateMovementUnitPrice(m.id, cost)
+                    }
+                }
+            }
+
+            // 4. Fix sales invoice items unitCost
+            val salesItems = invoiceDao.getAllSalesInvoiceItemsList()
+            for (item in salesItems) {
+                if (item.unitCost <= 0.0) {
+                    val prod = updatedProducts[item.productId]
+                    val cost = prod?.purchasePrice ?: 0.0
+                    if (cost > 0.0) {
+                        invoiceDao.updateSalesInvoiceItemCost(item.id, cost)
+                    }
+                }
+            }
+
+            // 5. Fix sales return items unitCost
+            val returnItems = returnDao.getAllSalesReturnItemsList()
+            for (item in returnItems) {
+                if (item.unitCost <= 0.0) {
+                    val prod = updatedProducts[item.productId]
+                    val cost = prod?.purchasePrice ?: 0.0
+                    if (cost > 0.0) {
+                        returnDao.updateSalesReturnItemCost(item.id, cost)
+                    }
+                }
+            }
+
+            Result.success("تم فحص وتحديث تكلفة المبيعات ومطابقة المخزون بنجاح!")
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 }

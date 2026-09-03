@@ -41,6 +41,8 @@ data class TrialBalanceRow(
     val accountCode: String,
     val accountName: String,
     val accountType: AccountType,
+    val totalDebit: Double = 0.0,
+    val totalCredit: Double = 0.0,
     val debitBalance: Double,
     val creditBalance: Double
 )
@@ -54,17 +56,48 @@ data class AccountStatementRow(
     val runningBalance: Double
 )
 
+data class AccountSummaryRow(
+    val accountId: Long,
+    val accountCode: String,
+    val accountName: String,
+    val accountType: AccountType,
+    val totalDebit: Double,
+    val totalCredit: Double,
+    val currentBalance: Double,
+    val isDebitBalance: Boolean,
+    val movementCount: Int
+)
+
+data class ProductProfitabilityRow(
+    val productId: Long,
+    val productCode: String,
+    val productName: String,
+    val quantitySold: Double,
+    val quantityReturned: Double,
+    val netQuantitySold: Double,
+    val salesRevenue: Double,
+    val costOfSales: Double,
+    val grossProfit: Double,
+    val marginPercentage: Double
+)
+
 data class IncomeStatementData(
     val grossSales: Double = 0.0,
     val salesReturns: Double = 0.0,
     val netSales: Double = 0.0,
     val cogs: Double = 0.0,
     val grossProfit: Double = 0.0,
+    val grossMarginPercent: Double = 0.0,
     val otherRevenues: Double = 0.0,
     val totalOperatingExpenses: Double = 0.0,
     val detailedExpenses: List<Pair<String, Double>> = emptyList(),
     val detailedRevenues: List<Pair<String, Double>> = emptyList(),
-    val netProfit: Double = 0.0
+    val netProfit: Double = 0.0,
+    val netMarginPercent: Double = 0.0,
+    val totalPurchases: Double = 0.0,
+    val totalPurchaseReturns: Double = 0.0,
+    val netPurchases: Double = 0.0,
+    val endingInventoryValue: Double = 0.0
 )
 
 class AccountingViewModel(application: Application) : AndroidViewModel(application) {
@@ -97,6 +130,14 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _defaultTaxRate = MutableStateFlow(prefs.getFloat("default_tax_rate", 0.0f).toDouble())
     val defaultTaxRate: StateFlow<Double> = _defaultTaxRate.asStateFlow()
+
+    // Decimals Setting (Default: false / without decimals)
+    private val _showDecimals = MutableStateFlow(prefs.getBoolean("show_decimals", false))
+    val showDecimals: StateFlow<Boolean> = _showDecimals.asStateFlow()
+
+    // Minimum Stock Setting (Default: 5.0)
+    private val _defaultMinStock = MutableStateFlow(prefs.getFloat("default_min_stock", 5.0f).toDouble())
+    val defaultMinStock: StateFlow<Double> = _defaultMinStock.asStateFlow()
 
     // Current navigation section
     private val _currentSection = MutableStateFlow(AppSection.DASHBOARD)
@@ -175,8 +216,10 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
 
     init {
         Formatters.currencySymbol = _currencySymbol.value
+        Formatters.showDecimals = _showDecimals.value
         viewModelScope.launch {
             repository.checkAndSeedInitialData()
+            repository.repairAndRecalculateCOGS()
             val isCleaned = prefs.getBoolean("system_data_cleaned_v3", false)
             if (!isCleaned) {
                 repository.clearInvoicesAndTransactionsOnly()
@@ -225,7 +268,9 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         phone: String,
         currency: String,
         isTaxActive: Boolean,
-        defaultTax: Double
+        defaultTax: Double,
+        showDec: Boolean = _showDecimals.value,
+        defaultMinStockVal: Double = _defaultMinStock.value
     ) {
         val validName = name.trim().ifEmpty { "الحساب المتكامل" }
         val validPhone = phone.trim()
@@ -236,7 +281,11 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         _currencySymbol.value = validCurrency
         _isTaxEnabled.value = isTaxActive
         _defaultTaxRate.value = defaultTax
+        _showDecimals.value = showDec
+        _defaultMinStock.value = defaultMinStockVal
+
         Formatters.currencySymbol = validCurrency
+        Formatters.showDecimals = showDec
 
         prefs.edit()
             .putString("store_name", validName)
@@ -244,9 +293,85 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
             .putString("currency_symbol", validCurrency)
             .putBoolean("is_tax_enabled", isTaxActive)
             .putFloat("default_tax_rate", defaultTax.toFloat())
+            .putBoolean("show_decimals", showDec)
+            .putFloat("default_min_stock", defaultMinStockVal.toFloat())
             .apply()
 
-        showMessage("تم حفظ إعدادات النظام والضريبة بنجاح")
+        showMessage("تم حفظ إعدادات النظام والضريبة والمخزون بنجاح")
+    }
+
+    fun toggleShowDecimals(enabled: Boolean) {
+        _showDecimals.value = enabled
+        Formatters.showDecimals = enabled
+        prefs.edit().putBoolean("show_decimals", enabled).apply()
+        showMessage(if (enabled) "تم تفعيل إظهار الكسور العشرية" else "تم إخفاء الكسور العشرية (عرض أرقام صحيحة)")
+    }
+
+    fun updateDefaultMinStock(newMin: Double) {
+        _defaultMinStock.value = newMin
+        prefs.edit().putFloat("default_min_stock", newMin.toFloat()).apply()
+        showMessage("تم تحديث الحد الأدنى الافتراضي للطلب: $newMin")
+    }
+
+    fun applyMinStockToAllProducts(newMin: Double, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            _defaultMinStock.value = newMin
+            prefs.edit().putFloat("default_min_stock", newMin.toFloat()).apply()
+            repository.updateAllProductsMinStock(newMin)
+            showMessage("تم تطبيق الحد الأدنى للطلب ($newMin) على كافة الأصناف بنجاح!")
+            onSuccess()
+        }
+    }
+
+    suspend fun exportBackup(): String {
+        return repository.exportBackupJson(
+            storeName = _storeName.value,
+            storePhone = _storePhone.value,
+            currencySymbol = _currencySymbol.value,
+            isTaxEnabled = _isTaxEnabled.value,
+            defaultTaxRate = _defaultTaxRate.value,
+            showDecimals = _showDecimals.value
+        )
+    }
+
+    fun restoreBackup(jsonString: String, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val result = repository.restoreBackupJson(jsonString) { name, phone, currency, isTax, taxRate, showDec ->
+                _storeName.value = name
+                _storePhone.value = phone
+                _currencySymbol.value = currency
+                _isTaxEnabled.value = isTax
+                _defaultTaxRate.value = taxRate
+                _showDecimals.value = showDec
+                Formatters.currencySymbol = currency
+                Formatters.showDecimals = showDec
+                prefs.edit()
+                    .putString("store_name", name)
+                    .putString("store_phone", phone)
+                    .putString("currency_symbol", currency)
+                    .putBoolean("is_tax_enabled", isTax)
+                    .putFloat("default_tax_rate", taxRate.toFloat())
+                    .putBoolean("show_decimals", showDec)
+                    .apply()
+            }
+            result.onSuccess { msg ->
+                showMessage(msg)
+                onSuccess()
+            }.onFailure { ex ->
+                showMessage(ex.message ?: "فشل استعادة النسخة الاحتياطية")
+            }
+        }
+    }
+
+    fun repairCOGS() {
+        viewModelScope.launch {
+            val result = repository.repairAndRecalculateCOGS()
+            result.onSuccess { msg ->
+                showMessage(msg)
+            }.onFailure { ex ->
+                showMessage(ex.message ?: "فشل فحص وتحديث تكلفة المبيعات")
+            }
+        }
     }
 
     fun setSection(section: AppSection) {
@@ -332,23 +457,87 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         return repository.getJournalLines(entryId)
     }
 
-    // Trial Balance Calculation (ميزان المراجعة)
+    // Trial Balance (ميزان المراجعة)
     fun calculateTrialBalance(): List<TrialBalanceRow> {
         val nonGroupAccounts = accounts.value.filter { !it.isGroup }
+        val lines = journalLines.value
         return nonGroupAccounts.map { acc ->
+            val linesForThis = lines.filter { it.accountId == acc.id }
+            val sumDebit = linesForThis.sumOf { it.debit }
+            val sumCredit = linesForThis.sumOf { it.credit }
             if (acc.type.isDebitDefault) {
                 if (acc.currentBalance >= 0) {
-                    TrialBalanceRow(acc.code, acc.nameAr, acc.type, debitBalance = acc.currentBalance, creditBalance = 0.0)
+                    TrialBalanceRow(acc.code, acc.nameAr, acc.type, totalDebit = sumDebit, totalCredit = sumCredit, debitBalance = acc.currentBalance, creditBalance = 0.0)
                 } else {
-                    TrialBalanceRow(acc.code, acc.nameAr, acc.type, debitBalance = 0.0, creditBalance = -acc.currentBalance)
+                    TrialBalanceRow(acc.code, acc.nameAr, acc.type, totalDebit = sumDebit, totalCredit = sumCredit, debitBalance = 0.0, creditBalance = -acc.currentBalance)
                 }
             } else {
                 if (acc.currentBalance >= 0) {
-                    TrialBalanceRow(acc.code, acc.nameAr, acc.type, debitBalance = 0.0, creditBalance = acc.currentBalance)
+                    TrialBalanceRow(acc.code, acc.nameAr, acc.type, totalDebit = sumDebit, totalCredit = sumCredit, debitBalance = 0.0, creditBalance = acc.currentBalance)
                 } else {
-                    TrialBalanceRow(acc.code, acc.nameAr, acc.type, debitBalance = -acc.currentBalance, creditBalance = 0.0)
+                    TrialBalanceRow(acc.code, acc.nameAr, acc.type, totalDebit = sumDebit, totalCredit = sumCredit, debitBalance = -acc.currentBalance, creditBalance = 0.0)
                 }
             }
+        }
+    }
+
+    // Account Summary Report (تقرير إجمالي الحسابات)
+    fun calculateAccountSummaryReport(): List<AccountSummaryRow> {
+        val allAccs = accounts.value
+        val lines = journalLines.value
+        return allAccs.map { acc ->
+            val linesForThis = lines.filter { it.accountId == acc.id }
+            val totalDebit = linesForThis.sumOf { it.debit }
+            val totalCredit = linesForThis.sumOf { it.credit }
+            val isDebit = acc.type.isDebitDefault
+
+            AccountSummaryRow(
+                accountId = acc.id,
+                accountCode = acc.code,
+                accountName = acc.nameAr,
+                accountType = acc.type,
+                totalDebit = totalDebit,
+                totalCredit = totalCredit,
+                currentBalance = acc.currentBalance,
+                isDebitBalance = isDebit,
+                movementCount = linesForThis.size
+            )
+        }
+    }
+
+    // Product Profitability Report (تقرير ربحية وتكلفة مبيعات الأصناف)
+    fun calculateProductProfitabilityReport(): List<ProductProfitabilityRow> {
+        val allProducts = products.value
+        val movements = stockMovements.value
+
+        return allProducts.mapNotNull { prod ->
+            val saleMoves = movements.filter { it.productId == prod.id && it.movementType == MovementType.SALE }
+            val returnMoves = movements.filter { it.productId == prod.id && it.movementType == MovementType.RETURN_IN }
+
+            val qtySold = saleMoves.sumOf { it.quantity }
+            val qtyReturned = returnMoves.sumOf { it.quantity }
+            val netQty = (qtySold - qtyReturned).coerceAtLeast(0.0)
+
+            val costPerUnit = if (prod.purchasePrice > 0) prod.purchasePrice else 0.0
+            val costOfSales = netQty * costPerUnit
+            val revenue = netQty * prod.sellingPrice
+            val grossProfit = revenue - costOfSales
+            val margin = if (revenue > 0) (grossProfit / revenue) * 100.0 else 0.0
+
+            if (qtySold > 0 || qtyReturned > 0 || prod.currentStock > 0) {
+                ProductProfitabilityRow(
+                    productId = prod.id,
+                    productCode = prod.code,
+                    productName = prod.nameAr,
+                    quantitySold = qtySold,
+                    quantityReturned = qtyReturned,
+                    netQuantitySold = netQty,
+                    salesRevenue = revenue,
+                    costOfSales = costOfSales,
+                    grossProfit = grossProfit,
+                    marginPercentage = margin
+                )
+            } else null
         }
     }
 
@@ -399,6 +588,9 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
     fun calculateIncomeStatement(): IncomeStatementData {
         val allSales = salesInvoices.value.filter { !it.isCancelled }
         val allReturns = salesReturns.value
+        val allPurchases = purchaseInvoices.value.filter { !it.isCancelled }
+        val allPurchaseReturns = purchaseReturns.value
+        val allProducts = products.value
 
         val grossSales = allSales.sumOf { it.subtotal - it.discount }
         val salesReturnsTotal = allReturns.sumOf { it.subtotal }
@@ -410,19 +602,43 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
             .sumOf { it.quantity * it.unitPrice }
         val returnsMovementCost = movements.filter { it.movementType == MovementType.RETURN_IN }
             .sumOf { it.quantity * it.unitPrice }
-        val cogs = (salesMovementCost - returnsMovementCost).coerceAtLeast(0.0)
+        var cogs = (salesMovementCost - returnsMovementCost).coerceAtLeast(0.0)
+
+        // Fallback calculation from product catalog if movements don't carry unit cost
+        if (cogs == 0.0 && grossSales > 0.0) {
+            val productCostMap = allProducts.associate { it.id to it.purchasePrice }
+            val estimatedSalesCost = movements.filter { it.movementType == MovementType.SALE }
+                .sumOf { it.quantity * (productCostMap[it.productId] ?: 0.0) }
+            val estimatedReturnsCost = movements.filter { it.movementType == MovementType.RETURN_IN }
+                .sumOf { it.quantity * (productCostMap[it.productId] ?: 0.0) }
+            cogs = (estimatedSalesCost - estimatedReturnsCost).coerceAtLeast(0.0)
+        }
+
+        if (cogs == 0.0 && grossSales > 0.0) {
+            val cogsAccount = accounts.value.find { it.code == "51" || it.code == "5101" }
+            if (cogsAccount != null && cogsAccount.currentBalance > 0.0) {
+                cogs = cogsAccount.currentBalance
+            }
+        }
+
+        val totalPurchases = allPurchases.sumOf { it.subtotal - it.discount }
+        val totalPurchaseReturns = allPurchaseReturns.sumOf { it.subtotal }
+        val netPurchases = (totalPurchases - totalPurchaseReturns).coerceAtLeast(0.0)
+        val endingInventoryValue = allProducts.sumOf { it.currentStock.coerceAtLeast(0.0) * it.purchasePrice }
 
         val grossProfit = netSales - cogs
+        val grossMarginPercent = if (netSales > 0) (grossProfit / netSales) * 100.0 else 0.0
 
-        val expenseAccounts = accounts.value.filter { it.type == AccountType.EXPENSE && !it.isGroup }
+        val expenseAccounts = accounts.value.filter { it.type == AccountType.EXPENSE && !it.isGroup && it.code != "51" && it.code != "5101" }
         val detailedExpenses = expenseAccounts.map { it.nameAr to it.currentBalance }
         val totalExpenses = expenseAccounts.sumOf { it.currentBalance }
 
-        val otherRevenueAccounts = accounts.value.filter { it.type == AccountType.REVENUE && !it.isGroup && it.code != "41" && it.code != "412" }
+        val otherRevenueAccounts = accounts.value.filter { it.type == AccountType.REVENUE && !it.isGroup && it.code != "41" && it.code != "4101" && it.code != "412" }
         val detailedRevenues = otherRevenueAccounts.map { it.nameAr to it.currentBalance }
         val otherRevenues = otherRevenueAccounts.sumOf { it.currentBalance }
 
         val netProfit = (grossProfit + otherRevenues) - totalExpenses
+        val netMarginPercent = if (netSales > 0) (netProfit / netSales) * 100.0 else 0.0
 
         return IncomeStatementData(
             grossSales = grossSales,
@@ -430,11 +646,17 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
             netSales = netSales,
             cogs = cogs,
             grossProfit = grossProfit,
+            grossMarginPercent = grossMarginPercent,
             otherRevenues = otherRevenues,
             totalOperatingExpenses = totalExpenses,
             detailedExpenses = detailedExpenses,
             detailedRevenues = detailedRevenues,
-            netProfit = netProfit
+            netProfit = netProfit,
+            netMarginPercent = netMarginPercent,
+            totalPurchases = totalPurchases,
+            totalPurchaseReturns = totalPurchaseReturns,
+            netPurchases = netPurchases,
+            endingInventoryValue = endingInventoryValue
         )
     }
 
@@ -464,6 +686,36 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
                 onSuccess()
             }.onFailure { ex ->
                 val err = ex.message ?: "خطأ في إنشاء الفاتورة"
+                showMessage(err)
+                onError(err)
+            }
+        }
+    }
+
+    fun updateSalesInvoice(
+        invoiceId: Long,
+        invoiceNumber: String,
+        date: Long,
+        customerId: Long?,
+        customerName: String,
+        items: List<SalesInvoiceItem>,
+        discount: Double,
+        taxRate: Double,
+        taxAmountOverride: Double?,
+        paymentType: PaymentType,
+        notes: String,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val result = repository.updateSalesInvoice(
+                invoiceId, invoiceNumber, date, customerId, customerName, items, discount, taxRate, taxAmountOverride, paymentType, notes
+            )
+            result.onSuccess {
+                showMessage("تم تحديث فاتورة المبيعات رقم $invoiceNumber وتعديل الحسابات والمخزون بنجاح!")
+                onSuccess()
+            }.onFailure { ex ->
+                val err = ex.message ?: "خطأ في تحديث الفاتورة"
                 showMessage(err)
                 onError(err)
             }
@@ -512,6 +764,36 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
                 onSuccess()
             }.onFailure { ex ->
                 val err = ex.message ?: "خطأ في تسجيل مردود المبيعات"
+                showMessage(err)
+                onError(err)
+            }
+        }
+    }
+
+    fun updateSalesReturn(
+        returnId: Long,
+        returnNumber: String,
+        originalInvoiceNumber: String,
+        date: Long,
+        customerId: Long?,
+        customerName: String,
+        items: List<SalesReturnItem>,
+        taxRate: Double,
+        taxAmountOverride: Double?,
+        paymentType: PaymentType,
+        notes: String,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val result = repository.updateSalesReturn(
+                returnId, returnNumber, originalInvoiceNumber, date, customerId, customerName, items, taxRate, taxAmountOverride, paymentType, notes
+            )
+            result.onSuccess {
+                showMessage("تم تحديث مردود المبيعات رقم $returnNumber بنجاح!")
+                onSuccess()
+            }.onFailure { ex ->
+                val err = ex.message ?: "خطأ في تحديث مردود المبيعات"
                 showMessage(err)
                 onError(err)
             }
@@ -567,6 +849,37 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun updatePurchaseInvoice(
+        billId: Long,
+        billNumber: String,
+        supplierInvoiceRef: String,
+        date: Long,
+        supplierId: Long?,
+        supplierName: String,
+        items: List<PurchaseInvoiceItem>,
+        discount: Double,
+        taxRate: Double,
+        taxAmountOverride: Double?,
+        paymentType: PaymentType,
+        notes: String,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val result = repository.updatePurchaseInvoice(
+                billId, billNumber, supplierInvoiceRef, date, supplierId, supplierName, items, discount, taxRate, taxAmountOverride, paymentType, notes
+            )
+            result.onSuccess {
+                showMessage("تم تحديث فاتورة المشتريات رقم $billNumber وتحديث الأرصدة والمخزون بنجاح!")
+                onSuccess()
+            }.onFailure { ex ->
+                val err = ex.message ?: "خطأ في تحديث فاتورة المشتريات"
+                showMessage(err)
+                onError(err)
+            }
+        }
+    }
+
     suspend fun getPurchaseInvoiceItems(billId: Long): List<PurchaseInvoiceItem> {
         return repository.getPurchaseInvoiceItems(billId)
     }
@@ -609,6 +922,36 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
                 onSuccess()
             }.onFailure { ex ->
                 val err = ex.message ?: "خطأ في تسجيل مردود المشتريات"
+                showMessage(err)
+                onError(err)
+            }
+        }
+    }
+
+    fun updatePurchaseReturn(
+        returnId: Long,
+        returnNumber: String,
+        originalBillNumber: String,
+        date: Long,
+        supplierId: Long?,
+        supplierName: String,
+        items: List<PurchaseReturnItem>,
+        taxRate: Double,
+        taxAmountOverride: Double?,
+        paymentType: PaymentType,
+        notes: String,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val result = repository.updatePurchaseReturn(
+                returnId, returnNumber, originalBillNumber, date, supplierId, supplierName, items, taxRate, taxAmountOverride, paymentType, notes
+            )
+            result.onSuccess {
+                showMessage("تم تحديث مردود المشتريات رقم $returnNumber بنجاح!")
+                onSuccess()
+            }.onFailure { ex ->
+                val err = ex.message ?: "خطأ في تحديث مردود المشتريات"
                 showMessage(err)
                 onError(err)
             }
@@ -658,6 +1001,37 @@ class AccountingViewModel(application: Application) : AndroidViewModel(applicati
                 onSuccess()
             }.onFailure { ex ->
                 val err = ex.message ?: "خطأ في إصدار السند"
+                showMessage(err)
+                onError(err)
+            }
+        }
+    }
+
+    fun updateVoucher(
+        voucherId: Long,
+        voucherNumber: String,
+        type: VoucherType,
+        date: Long,
+        amount: Double,
+        paymentType: PaymentType,
+        partnerType: VoucherPartnerType,
+        partnerId: Long?,
+        partnerName: String,
+        accountId: Long?,
+        accountName: String,
+        notes: String,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val result = repository.updateVoucher(
+                voucherId, voucherNumber, type, date, amount, paymentType, partnerType, partnerId, partnerName, accountId, accountName, notes
+            )
+            result.onSuccess {
+                showMessage("تم تحديث ${type.arabicName} رقم $voucherNumber بنجاح!")
+                onSuccess()
+            }.onFailure { ex ->
+                val err = ex.message ?: "خطأ في تحديث السند"
                 showMessage(err)
                 onError(err)
             }

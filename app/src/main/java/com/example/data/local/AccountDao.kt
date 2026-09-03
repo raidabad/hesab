@@ -9,6 +9,9 @@ interface AccountDao {
     @Query("SELECT * FROM accounts ORDER BY code ASC")
     fun getAllAccounts(): Flow<List<Account>>
 
+    @Query("SELECT * FROM accounts")
+    suspend fun getAllAccountsList(): List<Account>
+
     @Query("SELECT * FROM accounts WHERE isGroup = 0 AND isActive = 1 ORDER BY code ASC")
     fun getPostingAccounts(): Flow<List<Account>>
 

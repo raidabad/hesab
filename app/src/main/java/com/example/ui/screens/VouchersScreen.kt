@@ -24,7 +24,8 @@ import com.example.ui.viewmodel.AccountingViewModel
 @Composable
 fun VouchersScreen(
     viewModel: AccountingViewModel,
-    onNewVoucherClick: (VoucherType) -> Unit
+    onNewVoucherClick: (VoucherType) -> Unit,
+    onEditVoucherClick: ((Voucher) -> Unit)? = null
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
@@ -217,6 +218,11 @@ fun VouchersScreen(
                                     )
                                 }
                                 Spacer(modifier = Modifier.width(4.dp))
+                                if (onEditVoucherClick != null) {
+                                    IconButton(onClick = { onEditVoucherClick(voucher) }) {
+                                        Icon(Icons.Default.Edit, contentDescription = "تعديل السند", tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
                                 IconButton(onClick = { voucherToDelete = voucher }) {
                                     Icon(Icons.Default.DeleteOutline, contentDescription = "حذف السند", tint = ErrorRed)
                                 }
@@ -271,8 +277,20 @@ fun VouchersScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { voucherToView = null }) {
-                    Text("إغلاق")
+                Row {
+                    if (onEditVoucherClick != null) {
+                        TextButton(onClick = {
+                            val v = voucherToView
+                            voucherToView = null
+                            if (v != null) onEditVoucherClick(v)
+                        }) {
+                            Text("تعديل")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    TextButton(onClick = { voucherToView = null }) {
+                        Text("إغلاق")
+                    }
                 }
             }
         )

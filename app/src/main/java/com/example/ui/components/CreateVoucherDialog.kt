@@ -31,6 +31,7 @@ fun CreateVoucherDialog(
     customers: List<Customer>,
     suppliers: List<Supplier>,
     accounts: List<Account>,
+    existingVoucher: Voucher? = null,
     onDismiss: () -> Unit,
     onConfirm: (
         voucherNumber: String,
@@ -46,23 +47,42 @@ fun CreateVoucherDialog(
         notes: String
     ) -> Unit
 ) {
-    var voucherType by remember { mutableStateOf(initialType) }
-    var voucherNumber by remember { mutableStateOf(initialNumber) }
-    var operationDate by remember { mutableStateOf(System.currentTimeMillis()) }
-    var amountText by remember { mutableStateOf("") }
-    var paymentType by remember { mutableStateOf(PaymentType.CASH) }
+    val isEditing = existingVoucher != null
+    var voucherType by remember { mutableStateOf(existingVoucher?.type ?: initialType) }
+    var voucherNumber by remember { mutableStateOf(existingVoucher?.voucherNumber ?: initialNumber) }
+    var operationDate by remember { mutableStateOf(existingVoucher?.date ?: System.currentTimeMillis()) }
+    var amountText by remember { mutableStateOf(existingVoucher?.amount?.toString() ?: "") }
+    var paymentType by remember { mutableStateOf(existingVoucher?.paymentType ?: PaymentType.CASH) }
     var partnerType by remember {
         mutableStateOf(
-            if (initialType == VoucherType.RECEIPT) VoucherPartnerType.CUSTOMER else VoucherPartnerType.SUPPLIER
+            existingVoucher?.partnerType ?: (if (initialType == VoucherType.RECEIPT) VoucherPartnerType.CUSTOMER else VoucherPartnerType.SUPPLIER)
         )
     }
 
-    var selectedCustomer by remember { mutableStateOf<Customer?>(customers.firstOrNull()) }
-    var selectedSupplier by remember { mutableStateOf<Supplier?>(suppliers.firstOrNull()) }
-    var selectedAccount by remember { mutableStateOf<Account?>(accounts.filter { !it.isGroup }.firstOrNull()) }
+    var selectedCustomer by remember {
+        mutableStateOf<Customer?>(
+            if (existingVoucher?.partnerType == VoucherPartnerType.CUSTOMER && existingVoucher.partnerId != null) {
+                customers.find { it.id == existingVoucher.partnerId } ?: customers.firstOrNull()
+            } else customers.firstOrNull()
+        )
+    }
+    var selectedSupplier by remember {
+        mutableStateOf<Supplier?>(
+            if (existingVoucher?.partnerType == VoucherPartnerType.SUPPLIER && existingVoucher.partnerId != null) {
+                suppliers.find { it.id == existingVoucher.partnerId } ?: suppliers.firstOrNull()
+            } else suppliers.firstOrNull()
+        )
+    }
+    var selectedAccount by remember {
+        mutableStateOf<Account?>(
+            if (existingVoucher?.accountId != null) {
+                accounts.find { it.id == existingVoucher.accountId } ?: accounts.filter { !it.isGroup }.firstOrNull()
+            } else accounts.filter { !it.isGroup }.firstOrNull()
+        )
+    }
 
-    var customPartnerName by remember { mutableStateOf("") }
-    var notes by remember { mutableStateOf("") }
+    var customPartnerName by remember { mutableStateOf(existingVoucher?.partnerName ?: "") }
+    var notes by remember { mutableStateOf(existingVoucher?.notes ?: "") }
 
     val isReceipt = voucherType == VoucherType.RECEIPT
     val primaryColor = if (isReceipt) IncomeGreen else AmberWarning
@@ -98,7 +118,7 @@ fun CreateVoucherDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "إصدار ${voucherType.arabicName}",
+                            text = if (isEditing) "تعديل ${voucherType.arabicName} (${existingVoucher!!.voucherNumber})" else "إصدار ${voucherType.arabicName}",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor
@@ -373,7 +393,7 @@ fun CreateVoucherDialog(
                     ) {
                         Icon(Icons.Default.Check, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("حفظ وترحيل ${voucherType.arabicName}")
+                        Text(if (isEditing) "حفظ تعديل ${voucherType.arabicName}" else "حفظ وترحيل ${voucherType.arabicName}")
                     }
                 }
             }

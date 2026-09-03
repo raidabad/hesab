@@ -25,6 +25,12 @@ interface VoucherDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertVoucher(voucher: Voucher): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertVouchers(vouchers: List<Voucher>)
+
+    @Query("SELECT * FROM vouchers")
+    suspend fun getAllVouchersList(): List<Voucher>
+
     @Update
     suspend fun updateVoucher(voucher: Voucher)
 

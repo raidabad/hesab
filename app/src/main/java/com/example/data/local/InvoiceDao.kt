@@ -20,10 +20,25 @@ interface InvoiceDao {
     suspend fun insertSalesInvoice(invoice: SalesInvoice): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSalesInvoices(invoices: List<SalesInvoice>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSalesInvoiceItems(items: List<SalesInvoiceItem>)
 
     @Query("SELECT * FROM sales_invoice_items WHERE invoiceId = :invoiceId")
     suspend fun getSalesInvoiceItems(invoiceId: Long): List<SalesInvoiceItem>
+
+    @Query("SELECT * FROM sales_invoices")
+    suspend fun getAllSalesInvoicesList(): List<SalesInvoice>
+
+    @Query("SELECT * FROM sales_invoice_items")
+    suspend fun getAllSalesInvoiceItemsList(): List<SalesInvoiceItem>
+
+    @Query("UPDATE sales_invoice_items SET unitCost = :unitCost WHERE id = :itemId")
+    suspend fun updateSalesItemUnitCost(itemId: Long, unitCost: Double)
+
+    @Query("UPDATE sales_invoice_items SET unitCost = :unitCost WHERE id = :itemId")
+    suspend fun updateSalesInvoiceItemCost(itemId: Long, unitCost: Double)
 
     // Purchases
     @Query("SELECT * FROM purchase_invoices ORDER BY date DESC, id DESC")
@@ -36,10 +51,19 @@ interface InvoiceDao {
     suspend fun insertPurchaseInvoice(invoice: PurchaseInvoice): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPurchaseInvoices(invoices: List<PurchaseInvoice>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPurchaseInvoiceItems(items: List<PurchaseInvoiceItem>)
 
     @Query("SELECT * FROM purchase_invoice_items WHERE billId = :billId")
     suspend fun getPurchaseInvoiceItems(billId: Long): List<PurchaseInvoiceItem>
+
+    @Query("SELECT * FROM purchase_invoices")
+    suspend fun getAllPurchaseInvoicesList(): List<PurchaseInvoice>
+
+    @Query("SELECT * FROM purchase_invoice_items")
+    suspend fun getAllPurchaseInvoiceItemsList(): List<PurchaseInvoiceItem>
 
     // Counts and checks
     @Query("SELECT COUNT(*) FROM sales_invoices")

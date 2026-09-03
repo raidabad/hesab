@@ -26,7 +26,8 @@ fun SalesInvoiceDetailDialog(
     invoice: SalesInvoice,
     items: List<SalesInvoiceItem>,
     onDismiss: () -> Unit,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -48,7 +49,7 @@ fun SalesInvoiceDetailDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "فاتورة مبيعات: ${invoice.invoiceNumber}",
                             style = MaterialTheme.typography.titleMedium,
@@ -62,6 +63,14 @@ fun SalesInvoiceDetailDialog(
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (onEdit != null) {
+                            IconButton(onClick = {
+                                onDismiss()
+                                onEdit()
+                            }) {
+                                Icon(imageVector = Icons.Default.Edit, contentDescription = "تعديل الفاتورة", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
                         if (onDelete != null) {
                             IconButton(onClick = { showDeleteConfirm = true }) {
                                 Icon(imageVector = Icons.Default.Delete, contentDescription = "حذف الفاتورة", tint = ErrorRed)
@@ -169,7 +178,8 @@ fun PurchaseInvoiceDetailDialog(
     invoice: PurchaseInvoice,
     items: List<PurchaseInvoiceItem>,
     onDismiss: () -> Unit,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -191,7 +201,7 @@ fun PurchaseInvoiceDetailDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "فاتورة مشتريات: ${invoice.billNumber}",
                             style = MaterialTheme.typography.titleMedium,
@@ -205,6 +215,14 @@ fun PurchaseInvoiceDetailDialog(
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (onEdit != null) {
+                            IconButton(onClick = {
+                                onDismiss()
+                                onEdit()
+                            }) {
+                                Icon(imageVector = Icons.Default.Edit, contentDescription = "تعديل الفاتورة", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
                         if (onDelete != null) {
                             IconButton(onClick = { showDeleteConfirm = true }) {
                                 Icon(imageVector = Icons.Default.Delete, contentDescription = "حذف الفاتورة", tint = ErrorRed)
@@ -308,7 +326,8 @@ fun SalesReturnDetailDialog(
     sReturn: SalesReturn,
     items: List<SalesReturnItem>,
     onDismiss: () -> Unit,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -330,7 +349,7 @@ fun SalesReturnDetailDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "مردود مبيعات: ${sReturn.returnNumber}",
                             style = MaterialTheme.typography.titleMedium,
@@ -344,6 +363,14 @@ fun SalesReturnDetailDialog(
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (onEdit != null) {
+                            IconButton(onClick = {
+                                onDismiss()
+                                onEdit()
+                            }) {
+                                Icon(imageVector = Icons.Default.Edit, contentDescription = "تعديل المردود", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
                         if (onDelete != null) {
                             IconButton(onClick = { showDeleteConfirm = true }) {
                                 Icon(imageVector = Icons.Default.Delete, contentDescription = "حذف", tint = ErrorRed)
@@ -430,7 +457,8 @@ fun PurchaseReturnDetailDialog(
     pReturn: PurchaseReturn,
     items: List<PurchaseReturnItem>,
     onDismiss: () -> Unit,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -452,7 +480,7 @@ fun PurchaseReturnDetailDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "مردود مشتريات: ${pReturn.returnNumber}",
                             style = MaterialTheme.typography.titleMedium,
@@ -466,6 +494,14 @@ fun PurchaseReturnDetailDialog(
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (onEdit != null) {
+                            IconButton(onClick = {
+                                onDismiss()
+                                onEdit()
+                            }) {
+                                Icon(imageVector = Icons.Default.Edit, contentDescription = "تعديل المردود", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
                         if (onDelete != null) {
                             IconButton(onClick = { showDeleteConfirm = true }) {
                                 Icon(imageVector = Icons.Default.Delete, contentDescription = "حذف", tint = ErrorRed)
